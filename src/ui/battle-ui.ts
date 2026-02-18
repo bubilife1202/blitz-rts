@@ -77,7 +77,7 @@ export function createBattleUi(
   timePill.textContent = `남은 시간 ${formatTime(TIME_LIMIT_SECONDS)}`
   const capPill = document.createElement('span')
   capPill.className = 'pill mono'
-  capPill.textContent = '0/15'
+  capPill.textContent = '유닛 0/15'
   topLeft.appendChild(timePill)
   topLeft.appendChild(capPill)
 
@@ -100,7 +100,7 @@ export function createBattleUi(
   hudPanel.className = 'panel'
   const hudHeader = document.createElement('div')
   hudHeader.className = 'panel-header'
-  hudHeader.innerHTML = `<h2 class="panel-title">HUD</h2>`
+  hudHeader.innerHTML = `<h2 class="panel-title">전장 콘솔</h2>`
   const hudBody = document.createElement('div')
   hudBody.className = 'panel-body hud'
   hudPanel.appendChild(hudHeader)
@@ -110,11 +110,11 @@ export function createBattleUi(
   baseBars.className = 'grid'
   baseBars.innerHTML = `
     <div class="bar">
-      <div class="bar-label"><span>Player Base</span><span class="mono" data-role="p-base-text">—</span></div>
+      <div class="bar-label"><span>아군 기지</span><span class="mono" data-role="p-base-text">—</span></div>
       <progress class="progress" data-role="p-base" max="1" value="1"></progress>
     </div>
     <div class="bar">
-      <div class="bar-label"><span>Enemy Base</span><span class="mono" data-role="e-base-text">—</span></div>
+      <div class="bar-label"><span>적 기지</span><span class="mono" data-role="e-base-text">—</span></div>
       <progress class="progress progress-danger" data-role="e-base" max="1" value="1"></progress>
     </div>
   `
@@ -124,7 +124,7 @@ export function createBattleUi(
   resourceBars.className = 'grid'
   resourceBars.innerHTML = `
     <div class="bar">
-      <div class="bar-label"><span>Watt</span><span class="mono" data-role="watt-text">—</span></div>
+      <div class="bar-label"><span>와트</span><span class="mono" data-role="watt-text">—</span></div>
       <progress class="progress progress-gold" data-role="watt" max="${WATT_MAX}" value="0"></progress>
     </div>
     <div class="bar">
@@ -136,7 +136,7 @@ export function createBattleUi(
 
   const skillBox = document.createElement('div')
   skillBox.className = 'grid'
-  skillBox.innerHTML = `<div class="muted">Skills</div>`
+  skillBox.innerHTML = `<div class="muted">스킬</div>`
   const skillButtons = document.createElement('div')
   skillButtons.className = 'skill-buttons'
   skillBox.appendChild(skillButtons)
@@ -170,7 +170,7 @@ export function createBattleUi(
 
   const speedBox = document.createElement('div')
   speedBox.className = 'grid'
-  speedBox.innerHTML = `<div class="muted">Speed</div>`
+  speedBox.innerHTML = `<div class="muted">속도</div>`
   const speedControls = document.createElement('div')
   speedControls.className = 'speed-controls'
 
@@ -194,7 +194,7 @@ export function createBattleUi(
   const pauseBtn = document.createElement('button')
   pauseBtn.type = 'button'
   pauseBtn.className = 'btn btn-ghost'
-  pauseBtn.textContent = 'Pause'
+  pauseBtn.textContent = '일시정지'
   pauseBtn.addEventListener('click', () => callbacks.onPause())
   speedControls.appendChild(pauseBtn)
 
@@ -207,6 +207,21 @@ export function createBattleUi(
   container.replaceChildren(screen)
 
   const { ctx } = configureCanvas(canvas, CANVAS_W, CANVAS_H)
+
+  // Cache HUD element refs — avoid querySelector per frame
+  function requireEl<T extends Element>(sel: string): T {
+    const el = hudBody.querySelector<T>(sel)
+    if (!el) throw new Error(`Missing HUD element: ${sel}`)
+    return el
+  }
+  const pBaseBar = requireEl<HTMLProgressElement>('[data-role="p-base"]')
+  const eBaseBar = requireEl<HTMLProgressElement>('[data-role="e-base"]')
+  const pBaseText = requireEl<HTMLElement>('[data-role="p-base-text"]')
+  const eBaseText = requireEl<HTMLElement>('[data-role="e-base-text"]')
+  const wattBar = requireEl<HTMLProgressElement>('[data-role="watt"]')
+  const spBar = requireEl<HTMLProgressElement>('[data-role="sp"]')
+  const wattText = requireEl<HTMLElement>('[data-role="watt-text"]')
+  const spText = requireEl<HTMLElement>('[data-role="sp-text"]')
 
   function syncSpeedButtons(): void {
     for (const b of speedButtons) {
@@ -293,33 +308,22 @@ export function createBattleUi(
     const remaining = TIME_LIMIT_SECONDS - state.elapsedSeconds
     timePill.textContent = `남은 시간 ${formatTime(remaining)}`
 
-    const alive = countAliveUnits(state, 'player')
-    capPill.textContent = `${alive}/${state.battlefield.unitCapPerSide}`
+    const playerAlive = countAliveUnits(state, 'player')
+    const enemyAlive = countAliveUnits(state, 'enemy')
+    capPill.textContent = `아군 ${playerAlive} vs 적 ${enemyAlive}`
 
-    const pBase = hudBody.querySelector<HTMLProgressElement>('[data-role="p-base"]')
-    const eBase = hudBody.querySelector<HTMLProgressElement>('[data-role="e-base"]')
-    const pBaseText = hudBody.querySelector<HTMLElement>('[data-role="p-base-text"]')
-    const eBaseText = hudBody.querySelector<HTMLElement>('[data-role="e-base-text"]')
-    if (!pBase || !eBase || !pBaseText || !eBaseText) throw new Error('Missing base HUD elements')
-
-    pBase.max = state.battlefield.playerBase.maxHp
-    pBase.value = state.battlefield.playerBase.hp
+    pBaseBar.max = state.battlefield.playerBase.maxHp
+    pBaseBar.value = state.battlefield.playerBase.hp
     pBaseText.textContent = `${Math.ceil(state.battlefield.playerBase.hp)}/${state.battlefield.playerBase.maxHp}`
 
-    eBase.max = state.battlefield.enemyBase.maxHp
-    eBase.value = state.battlefield.enemyBase.hp
+    eBaseBar.max = state.battlefield.enemyBase.maxHp
+    eBaseBar.value = state.battlefield.enemyBase.hp
     eBaseText.textContent = `${Math.ceil(state.battlefield.enemyBase.hp)}/${state.battlefield.enemyBase.maxHp}`
 
-    const watt = hudBody.querySelector<HTMLProgressElement>('[data-role="watt"]')
-    const sp = hudBody.querySelector<HTMLProgressElement>('[data-role="sp"]')
-    const wattText = hudBody.querySelector<HTMLElement>('[data-role="watt-text"]')
-    const spText = hudBody.querySelector<HTMLElement>('[data-role="sp-text"]')
-    if (!watt || !sp || !wattText || !spText) throw new Error('Missing resource HUD elements')
-
-    watt.value = state.playerWatt.current
+    wattBar.value = state.playerWatt.current
     wattText.textContent = `${Math.floor(state.playerWatt.current)}/${WATT_MAX}`
 
-    sp.value = state.skillSystem.sp.current
+    spBar.value = state.skillSystem.sp.current
     spText.textContent = `${Math.floor(state.skillSystem.sp.current)}/${SP_MAX}`
 
     for (let i = 0; i < 3; i++) {

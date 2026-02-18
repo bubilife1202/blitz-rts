@@ -10,70 +10,43 @@ export interface ShopUiCallbacks {
 
 type ShopHandle = { destroy(): void; refresh(inventory: Inventory): void }
 
-function injectStyles(): void {
-  if (document.getElementById('shop-ui-styles')) return
-  const style = document.createElement('style')
-  style.id = 'shop-ui-styles'
-  style.textContent = `
-    .shop-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .shop-sections {
-      display: grid;
-      gap: 12px;
-    }
-
-    .shop-card {
-      cursor: default;
-      min-height: 92px;
-    }
-
-    .shop-card:hover {
-      transform: none;
-      border-color: rgba(255, 255, 255, 0.12);
-      background: rgba(20, 20, 37, 0.65);
-    }
-
-    .shop-card-head {
-      display: flex;
-      align-items: start;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .shop-price {
-      font-family: var(--mono);
-      color: var(--gold);
-      white-space: nowrap;
-    }
-
-    .shop-price-muted {
-      opacity: 0.6;
-    }
-
-    .badge-owned {
-      border-color: rgba(102, 187, 106, 0.8);
-      color: #a6f0aa;
-    }
-
-    .shop-actions {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      justify-content: flex-end;
-      margin-top: 10px;
-    }
-  `
-  document.head.appendChild(style)
-}
-
 function goldText(gold: number): string {
   return `${gold} G`
+}
+
+type ShopCategory = 'legs' | 'body' | 'weapon' | 'accessory'
+
+function categoryLabelKo(category: ShopCategory): string {
+  switch (category) {
+    case 'legs':
+      return '다리'
+    case 'body':
+      return '몸체'
+    case 'weapon':
+      return '무기'
+    case 'accessory':
+      return '보조'
+  }
+}
+
+function tierForPrice(price: number): 'basic' | 'standard' | 'advanced' | 'elite' {
+  if (price <= 0) return 'basic'
+  if (price <= 150) return 'standard'
+  if (price <= 250) return 'advanced'
+  return 'elite'
+}
+
+function tierClass(tier: 'basic' | 'standard' | 'advanced' | 'elite'): string {
+  switch (tier) {
+    case 'basic':
+      return 'tier-basic'
+    case 'standard':
+      return 'tier-standard'
+    case 'advanced':
+      return 'tier-advanced'
+    case 'elite':
+      return 'tier-elite'
+  }
 }
 
 function keyStatText(part: { readonly slot: string } & Record<string, unknown>): string {
@@ -105,83 +78,25 @@ function keyStatText(part: { readonly slot: string } & Record<string, unknown>):
   }
 }
 
-function renderSection(params: {
-  readonly title: string
-  readonly parts: readonly { readonly id: PartId; readonly name: string; readonly slot: string }[]
-  readonly inventory: Inventory
-  readonly onBuy: (partId: PartId) => void
-}): HTMLDivElement {
-  const panel = document.createElement('div')
-  panel.className = 'panel'
-  panel.innerHTML = `
-    <div class="panel-header">
-      <h2 class="panel-title">${params.title}</h2>
-      <div class="muted">20 parts total</div>
-    </div>
-    <div class="panel-body">
-      <div class="card-grid" data-role="grid"></div>
-    </div>
-  `
-
-  const grid = panel.querySelector<HTMLDivElement>('[data-role="grid"]')
-  if (!grid) throw new Error('Missing shop grid')
-
-  for (const part of params.parts) {
-    const owned = ownsPart(params.inventory, part.id)
-    const price = getPartPrice(part.id)
-    const canAfford = params.inventory.gold >= price
-
-    const card = document.createElement('div')
-    card.className = 'card shop-card'
-
-    const head = document.createElement('div')
-    head.className = 'shop-card-head'
-
-    const left = document.createElement('div')
-    const title = document.createElement('div')
-    title.className = 'card-title'
-    title.textContent = part.name
-    const sub = document.createElement('div')
-    sub.className = 'card-sub mono'
-    sub.textContent = keyStatText(part as unknown as { readonly slot: string } & Record<string, unknown>)
-    left.appendChild(title)
-    left.appendChild(sub)
-
-    const right = document.createElement('div')
-    if (owned) {
-      const badge = document.createElement('span')
-      badge.className = 'badge badge-owned'
-      badge.textContent = 'Owned'
-      right.appendChild(badge)
-    } else {
-      const priceEl = document.createElement('div')
-      priceEl.className = `shop-price ${canAfford ? '' : 'shop-price-muted'}`.trim()
-      priceEl.textContent = `${price} G`
-      right.appendChild(priceEl)
-    }
-
-    head.appendChild(left)
-    head.appendChild(right)
-    card.appendChild(head)
-
-    const actions = document.createElement('div')
-    actions.className = 'shop-actions'
-    const buyBtn = document.createElement('button')
-    buyBtn.type = 'button'
-    buyBtn.className = 'btn btn-primary'
-    buyBtn.textContent = 'Buy'
-    buyBtn.disabled = owned || !canAfford
-    buyBtn.addEventListener('click', () => {
-      if (buyBtn.disabled) return
-      params.onBuy(part.id)
-    })
-    actions.appendChild(buyBtn)
-    card.appendChild(actions)
-
-    grid.appendChild(card)
+function previewShapeClass(part: { readonly slot: string } & Record<string, unknown>): string {
+  if (part.slot === 'legs') {
+    const moveType = String(part['moveType'] ?? '')
+    if (moveType === 'reverse-joint') return 'shape-legs'
+    if (moveType === 'tank') return 'shape-legs'
+    if (moveType === 'quadruped') return 'shape-legs'
+    return 'shape-legs'
   }
-
-  return panel
+  if (part.slot === 'body') return 'shape-body'
+  if (part.slot === 'weapon') {
+    const name = String(part['name'] ?? '')
+    if (name.toLowerCase().includes('missile')) return 'shape-weapon missile'
+    if (name.toLowerCase().includes('hammer')) return 'shape-weapon melee'
+    return 'shape-weapon'
+  }
+  const eff = part['effect'] as { readonly kind?: string } | undefined
+  if (eff?.kind === 'defense-flat') return 'shape-accessory hex'
+  if (eff?.kind === 'hp-flat') return 'shape-accessory circle'
+  return 'shape-accessory antenna'
 }
 
 export function createShopUi(
@@ -189,19 +104,19 @@ export function createShopUi(
   inventory: Inventory,
   callbacks: ShopUiCallbacks,
 ): ShopHandle {
-  injectStyles()
-
   let currentInv = inventory
 
+  let activeCategory: ShopCategory = 'legs'
+
   const screen = document.createElement('div')
-  screen.className = 'screen'
+  screen.className = 'screen shop-layout'
 
   const title = document.createElement('h1')
   title.className = 'game-title'
   title.textContent = 'BLITZ RTS'
 
   const top = document.createElement('div')
-  top.className = 'shop-top'
+  top.className = 'topbar shop-head'
 
   const goldPill = document.createElement('span')
   goldPill.className = 'pill'
@@ -210,51 +125,162 @@ export function createShopUi(
   const backBtn = document.createElement('button')
   backBtn.type = 'button'
   backBtn.className = 'btn btn-ghost'
-  backBtn.textContent = 'Back'
+  backBtn.textContent = '뒤로'
   backBtn.addEventListener('click', () => callbacks.onBack())
 
   top.appendChild(goldPill)
   top.appendChild(backBtn)
 
-  const sections = document.createElement('div')
-  sections.className = 'shop-sections'
+  const shopPanel = document.createElement('div')
+  shopPanel.className = 'panel'
+
+  const shopHeader = document.createElement('div')
+  shopHeader.className = 'panel-header'
+  shopHeader.innerHTML = `<h2 class="panel-title">상점</h2><div class="muted">파츠를 구매해 조립 옵션을 확장하세요</div>`
+
+  const shopBody = document.createElement('div')
+  shopBody.className = 'panel-body'
+
+  const categoryTabs = document.createElement('div')
+  categoryTabs.className = 'category-tabs'
+
+  const tabButtons: Array<{ readonly cat: ShopCategory; readonly el: HTMLButtonElement }> = []
+  for (const cat of ['legs', 'body', 'weapon', 'accessory'] as const) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'tab'
+    btn.textContent = categoryLabelKo(cat)
+    btn.setAttribute('aria-pressed', cat === activeCategory ? 'true' : 'false')
+    btn.addEventListener('click', () => {
+      activeCategory = cat
+      renderAll()
+    })
+    tabButtons.push({ cat, el: btn })
+    categoryTabs.appendChild(btn)
+  }
+
+  const gridWrap = document.createElement('div')
+  gridWrap.className = 'shop-grid'
+
+  const partsGrid = document.createElement('div')
+  partsGrid.className = 'card-grid'
+
+  gridWrap.appendChild(partsGrid)
+
+  shopBody.appendChild(categoryTabs)
+  shopBody.appendChild(gridWrap)
+  shopPanel.appendChild(shopHeader)
+  shopPanel.appendChild(shopBody)
 
   function renderAll(): void {
     const goldEl = goldPill.querySelector<HTMLElement>('[data-role="gold"]')
     if (!goldEl) throw new Error('Missing gold element')
     goldEl.textContent = goldText(currentInv.gold)
 
-    sections.replaceChildren(
-      renderSection({
-        title: 'LEGS',
-        parts: LEGS_PARTS,
-        inventory: currentInv,
-        onBuy: callbacks.onBuy,
-      }),
-      renderSection({
-        title: 'BODY',
-        parts: BODY_PARTS,
-        inventory: currentInv,
-        onBuy: callbacks.onBuy,
-      }),
-      renderSection({
-        title: 'WEAPON',
-        parts: WEAPON_PARTS,
-        inventory: currentInv,
-        onBuy: callbacks.onBuy,
-      }),
-      renderSection({
-        title: 'ACCESSORY',
-        parts: ACCESSORY_PARTS,
-        inventory: currentInv,
-        onBuy: callbacks.onBuy,
-      }),
-    )
+    for (const t of tabButtons) {
+      t.el.setAttribute('aria-pressed', t.cat === activeCategory ? 'true' : 'false')
+    }
+
+    const parts = activeCategory === 'legs'
+      ? LEGS_PARTS
+      : activeCategory === 'body'
+        ? BODY_PARTS
+        : activeCategory === 'weapon'
+          ? WEAPON_PARTS
+          : ACCESSORY_PARTS
+
+    partsGrid.innerHTML = ''
+    for (const part of parts) {
+      const owned = ownsPart(currentInv, part.id)
+      const price = getPartPrice(part.id)
+      const canAfford = currentInv.gold >= price
+      const tier = tierForPrice(price)
+
+      const card = document.createElement('div')
+      card.className = 'card'
+
+      const tierEl = document.createElement('div')
+      tierEl.className = `tier-bar ${tierClass(tier)}`
+      card.appendChild(tierEl)
+
+      const row = document.createElement('div')
+      row.className = 'part-card'
+
+      const preview = document.createElement('div')
+      preview.className = 'part-preview'
+      preview.innerHTML = `
+        <div class="shape ${previewShapeClass(part as unknown as { readonly slot: string } & Record<string, unknown>)}" style="transform: scale(0.22); transform-origin: center;">
+          <div class="shape-core"></div>
+          <div class="shape-detail"></div>
+        </div>
+      `
+
+      const main = document.createElement('div')
+      const head = document.createElement('div')
+      head.style.display = 'flex'
+      head.style.alignItems = 'start'
+      head.style.justifyContent = 'space-between'
+      head.style.gap = '10px'
+
+      const left = document.createElement('div')
+      const title = document.createElement('div')
+      title.className = 'card-title'
+      title.textContent = part.name
+      const sub = document.createElement('div')
+      sub.className = 'card-sub mono'
+      sub.textContent = keyStatText(part as unknown as { readonly slot: string } & Record<string, unknown>)
+      left.appendChild(title)
+      left.appendChild(sub)
+
+      const right = document.createElement('div')
+      right.style.display = 'grid'
+      right.style.justifyItems = 'end'
+      right.style.gap = '8px'
+      if (owned) {
+        const badge = document.createElement('span')
+        badge.className = 'badge badge-easy'
+        badge.textContent = '보유'
+        right.appendChild(badge)
+      } else {
+        const priceEl = document.createElement('div')
+        priceEl.className = `price ${canAfford ? '' : 'price-muted'}`.trim()
+        priceEl.textContent = `${price} G`
+        right.appendChild(priceEl)
+      }
+
+      head.appendChild(left)
+      head.appendChild(right)
+      main.appendChild(head)
+
+      const actions = document.createElement('div')
+      actions.style.display = 'flex'
+      actions.style.justifyContent = 'flex-end'
+      actions.style.gap = '8px'
+      actions.style.marginTop = '10px'
+
+      const buyBtn = document.createElement('button')
+      buyBtn.type = 'button'
+      buyBtn.className = 'btn btn-primary'
+      buyBtn.textContent = '구매'
+      buyBtn.disabled = owned || !canAfford
+      buyBtn.addEventListener('click', () => {
+        if (buyBtn.disabled) return
+        callbacks.onBuy(part.id)
+      })
+      actions.appendChild(buyBtn)
+      main.appendChild(actions)
+
+      row.appendChild(preview)
+      row.appendChild(main)
+      card.appendChild(row)
+
+      partsGrid.appendChild(card)
+    }
   }
 
   screen.appendChild(title)
   screen.appendChild(top)
-  screen.appendChild(sections)
+  screen.appendChild(shopPanel)
   container.replaceChildren(screen)
 
   renderAll()
