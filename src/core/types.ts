@@ -179,3 +179,66 @@ export interface SkillDefinition {
   readonly cooldownSeconds: number
   readonly effect: SkillEffect
 }
+
+// ─── Synergy System ────────────────────────────────────
+
+export type SynergyId =
+  | 'aerial-sniper'
+  | 'heavy-tank'
+  | 'striker'
+  | 'fortress'
+  | 'rapid-battery'
+  | 'missile-platform'
+  | 'mobile-strike'
+  | 'sniper-nest'
+
+export type SynergyBonusKind =
+  | { readonly kind: 'range-flat'; readonly value: number }
+  | { readonly kind: 'fire-rate-flat'; readonly value: number }
+  | { readonly kind: 'attack-percent'; readonly value: number }
+  | { readonly kind: 'defense-aura'; readonly range: number; readonly value: number }
+  | { readonly kind: 'speed-damage'; readonly percent: number }
+  | { readonly kind: 'splash-range-flat'; readonly value: number }
+  | { readonly kind: 'move-attack' }
+  | { readonly kind: 'crit-chance'; readonly percent: number }
+  | { readonly kind: 'first-hit-multiplier'; readonly multiplier: number }
+
+export interface SynergyCondition {
+  readonly legsMove?: LegsMoveType
+  readonly bodyMount?: MountType
+  readonly bodyId?: BodyId
+  readonly weaponId?: WeaponId
+  readonly accessoryId?: AccessoryId
+}
+
+export interface SynergyDefinition {
+  readonly id: SynergyId
+  readonly name: string
+  readonly nameKo: string
+  readonly description: string
+  readonly condition: SynergyCondition
+  readonly bonus: SynergyBonusKind
+}
+
+// ─── Enemy Scouting ────────────────────────────────────
+
+export interface EnemyScoutInfo {
+  readonly descriptionKo: string
+  readonly strategyHintKo: string
+  readonly tags: readonly string[]
+}
+
+// ─── Battle Analysis ───────────────────────────────────
+
+export type AnalysisTipKind =
+  | 'build-countered'
+  | 'range-disadvantage'
+  | 'speed-mismatch'
+  | 'watt-inefficient'
+  | 'synergy-hint'
+
+export interface BattleAnalysisTip {
+  readonly kind: AnalysisTipKind
+  readonly buildIndex: RosterIndex
+  readonly messageKo: string
+}

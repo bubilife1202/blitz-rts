@@ -1,0 +1,68 @@
+import type { SynergyDefinition } from '../core/types'
+
+export const SYNERGIES: readonly SynergyDefinition[] = [
+  {
+    id: 'aerial-sniper',
+    name: 'Aerial Sniper',
+    nameKo: '공중 저격',
+    description: '호버 + 스나이퍼 → 사거리 +2',
+    condition: { legsMove: 'flying', weaponId: 'AP03' },
+    bonus: { kind: 'range-flat', value: 2 },
+  },
+  {
+    id: 'heavy-tank',
+    name: 'Heavy Tank',
+    nameKo: '중전차',
+    description: '탱크 + 캐논 → 첫 공격 대미지 2배',
+    condition: { legsMove: 'tank', weaponId: 'AP02' },
+    bonus: { kind: 'first-hit-multiplier', multiplier: 2 },
+  },
+  {
+    id: 'striker',
+    name: 'Striker',
+    nameKo: '돌격병',
+    description: '스카웃 + 해머 → 이속 비례 추가 대미지 15%',
+    condition: { legsMove: 'reverse-joint', weaponId: 'AP05' },
+    bonus: { kind: 'speed-damage', percent: 0.15 },
+  },
+  {
+    id: 'fortress',
+    name: 'Fortress',
+    nameKo: '요새',
+    description: '포트리스 + 쉴드젠 → 주변 2칸 방어력 +5',
+    condition: { bodyId: 'BP03', accessoryId: 'ACP02' },
+    bonus: { kind: 'defense-aura', range: 2, value: 5 },
+  },
+  {
+    id: 'rapid-battery',
+    name: 'Rapid Battery',
+    nameKo: '속사포대',
+    description: '워커 + 벌컨 → 연사력 +2',
+    condition: { legsMove: 'humanoid', weaponId: 'AP01' },
+    bonus: { kind: 'fire-rate-flat', value: 2 },
+  },
+  {
+    id: 'missile-platform',
+    name: 'Missile Platform',
+    nameKo: '미사일 플랫폼',
+    description: '스파이더 + 미사일 → 스플래시 범위 +1',
+    condition: { legsMove: 'quadruped', weaponId: 'AP04' },
+    bonus: { kind: 'splash-range-flat', value: 1 },
+  },
+  {
+    id: 'mobile-strike',
+    name: 'Mobile Strike',
+    nameKo: '기동 타격',
+    description: '호버 + 벌컨 → 이동 중 공격 가능',
+    condition: { legsMove: 'flying', weaponId: 'AP01' },
+    bonus: { kind: 'move-attack' },
+  },
+  {
+    id: 'sniper-nest',
+    name: 'Sniper Nest',
+    nameKo: '저격 둥지',
+    description: '스파이더 + 스나이퍼 베이 + 스나이퍼 → 크리티컬 15%',
+    condition: { legsMove: 'quadruped', bodyId: 'BP04', weaponId: 'AP03' },
+    bonus: { kind: 'crit-chance', percent: 0.15 },
+  },
+]

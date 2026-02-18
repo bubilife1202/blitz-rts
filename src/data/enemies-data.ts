@@ -1,10 +1,12 @@
-import type { Roster } from '../core/types'
+import type { EnemyScoutInfo, Roster } from '../core/types'
 
 export interface EnemyPreset {
   readonly name: string
+  readonly nameKo: string
   readonly difficulty: 'easy' | 'normal' | 'hard' | 'nightmare'
   readonly roster: Roster
   readonly ratios: readonly [number, number, number]
+  readonly scout: EnemyScoutInfo
 }
 
 // Rookie Bot (Easy)
@@ -60,32 +62,62 @@ const OMEGA_SQUAD_ROSTER: Roster = [
 export const ENEMY_PRESETS: readonly EnemyPreset[] = [
   {
     name: 'Rookie Bot',
+    nameKo: '루키 봇',
     difficulty: 'easy',
     roster: ROOKIE_BOT_ROSTER,
     ratios: [3, 1, 1],
+    scout: {
+      descriptionKo: '기본형 워커 위주의 초보 AI. 벌컨과 해머를 사용하며 특별한 전략 없이 전진한다.',
+      strategyHintKo: '어떤 빌드든 무난하게 승리 가능. 조립 연습용.',
+      tags: ['워커', '벌컨', '해머', '기본형'],
+    },
   },
   {
     name: 'Tank Commander',
+    nameKo: '탱크 커맨더',
     difficulty: 'normal',
     roster: TANK_COMMANDER_ROSTER,
     ratios: [2, 2, 1],
+    scout: {
+      descriptionKo: '저거너트 + 캐논 중전차를 주력으로 밀어온다. 느리지만 한 방이 아프다.',
+      strategyHintKo: '사거리 긴 스나이퍼나 미사일로 접근 전에 처리. 스카웃 돌격병도 효과적.',
+      tags: ['탱크', '중장갑', '캐논', '미사일'],
+    },
   },
   {
     name: 'Swarm Master',
+    nameKo: '스웜 마스터',
     difficulty: 'normal',
     roster: SWARM_MASTER_ROSTER,
     ratios: [3, 3, 2],
+    scout: {
+      descriptionKo: '스카웃과 호버 경량 유닛을 대량 생산. 벌컨 물량으로 압도한다.',
+      strategyHintKo: '미사일 스플래시로 물량 처리. 요새 시너지로 방어력 확보도 좋다.',
+      tags: ['스카웃', '호버', '벌컨', '물량전'],
+    },
   },
   {
     name: 'Sniper Elite',
+    nameKo: '스나이퍼 엘리트',
     difficulty: 'hard',
     roster: SNIPER_ELITE_ROSTER,
     ratios: [2, 1, 2],
+    scout: {
+      descriptionKo: '스파이더 + 스나이퍼로 원거리 저격. 탱크 + 캐논으로 전선 유지. 해머 근접병으로 돌파.',
+      strategyHintKo: '빠른 스카웃으로 저격수 접근 후 처리. EMP로 저격 타이밍 끊기.',
+      tags: ['스파이더', '스나이퍼', '탱크', '원거리'],
+    },
   },
   {
     name: 'Omega Squad',
+    nameKo: '오메가 스쿼드',
     difficulty: 'nightmare',
     roster: OMEGA_SQUAD_ROSTER,
     ratios: [2, 2, 1],
+    scout: {
+      descriptionKo: '중전차 + 저격수 + 미사일의 복합 전술. 모든 거리에서 강력하다.',
+      strategyHintKo: '시너지 조합 필수. 한 가지 전략으로는 돌파 불가. 스킬 타이밍이 핵심.',
+      tags: ['탱크', '스나이퍼', '미사일', '복합전술'],
+    },
   },
 ]
