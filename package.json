@@ -15,6 +15,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "pixi.js": "^8.16.0"
+    "pixi.js": "^8.16.0",
+    "puppeteer": "^24.37.5"
   }
 }

@@ -538,25 +538,26 @@ function doActivatePlayerSkill(
 
   const cd = state.playerSkillSystem.cooldowns[skillIndex]
   if (!cd) return false
-  const def = getSkillDefinition(cd.name)
 
+  const success = applySkillEffect(state, state.playerSkillSystem, skillIndex, false)
+  if (!success) return false
+
+  const def = getSkillDefinition(cd.name)
   spendSp(state.playerSkillSystem.sp, def.spCost)
   startCooldown(state.playerSkillSystem, skillIndex)
 
-  const success = applySkillEffect(state, state.playerSkillSystem, skillIndex, false)
-  if (success) {
-    state.lastPlayerSkillTime = state.elapsed
-    recordPlayerSkill(state.calloutTriggers, cd.name, state.elapsed)
+  state.lastPlayerSkillTime = state.elapsed
+  recordPlayerSkill(state.calloutTriggers, cd.name, state.elapsed)
 
-    // Check for combo reaction callout
-    const comboMsg = checkComboReaction(
-      state.config.partner.id,
-      state.calloutTriggers,
-      state.elapsed,
-    )
-    if (comboMsg) enqueue(state.calloutQueue, comboMsg)
-  }
-  return success
+  // Check for combo reaction callout
+  const comboMsg = checkComboReaction(
+    state.config.partner.id,
+    state.calloutTriggers,
+    state.elapsed,
+  )
+  if (comboMsg) enqueue(state.calloutQueue, comboMsg)
+
+  return true
 }
 
 function processPartnerAI(state: InternalCoopState): void {

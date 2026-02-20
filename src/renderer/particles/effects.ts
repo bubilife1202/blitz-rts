@@ -210,3 +210,212 @@ export function overchargeSparkle(pool: ParticlePool, x: number, y: number): voi
     )
   }
 }
+
+// ─── Weapon-specific impact effects (at target position) ───
+
+const CYAN = [0x00ffff, 0x44ddff] as const
+const WHITE = [0xffffff, 0xeeeeff] as const
+
+/** Vulcan: small yellow impact flash (5 particles) */
+export function impactVulcan(pool: ParticlePool, x: number, y: number): void {
+  for (let i = 0; i < 5; i++) {
+    spawnParticle(
+      pool,
+      x + rand(-3, 3),
+      y + rand(-3, 3),
+      rand(-30, 30),
+      rand(-30, 30),
+      0.12,
+      rand(1.5, 2.5),
+      0xffcc00,
+      0.9,
+      0.7,
+    )
+  }
+}
+
+/** Cannon: medium orange flash + 4-directional sparks */
+export function impactCannon(pool: ParticlePool, x: number, y: number): void {
+  // Flash
+  for (let i = 0; i < 4; i++) {
+    spawnParticle(
+      pool,
+      x + rand(-4, 4),
+      y + rand(-4, 4),
+      rand(-20, 20),
+      rand(-20, 20),
+      0.15,
+      rand(2, 4),
+      pick(FIRE),
+      1,
+      0.8,
+    )
+  }
+  // Directional sparks
+  const dirs = [0, Math.PI / 2, Math.PI, Math.PI * 1.5]
+  for (const angle of dirs) {
+    spawnParticle(
+      pool,
+      x,
+      y,
+      Math.cos(angle) * 60,
+      Math.sin(angle) * 60,
+      0.2,
+      rand(1.5, 2),
+      0xffaa00,
+      0.8,
+      0.6,
+    )
+  }
+}
+
+/** Sniper: white flash + large single spark */
+export function impactSniper(pool: ParticlePool, x: number, y: number): void {
+  spawnParticle(pool, x, y, 0, 0, 0.1, 6, 0xffffff, 1, 0.5)
+  const angle = Math.random() * Math.PI * 2
+  spawnParticle(
+    pool,
+    x,
+    y,
+    Math.cos(angle) * 80,
+    Math.sin(angle) * 80,
+    0.25,
+    rand(2, 3),
+    pick(WHITE),
+    0.9,
+    0.6,
+  )
+}
+
+/** Missile: mini explosion (8 particles) */
+export function impactMissile(pool: ParticlePool, x: number, y: number): void {
+  for (let i = 0; i < 8; i++) {
+    const angle = Math.random() * Math.PI * 2
+    const speed = rand(30, 80)
+    spawnParticle(
+      pool,
+      x + rand(-4, 4),
+      y + rand(-4, 4),
+      Math.cos(angle) * speed,
+      Math.sin(angle) * speed,
+      rand(0.2, 0.35),
+      rand(2, 5),
+      pick(FIRE),
+      1,
+      0.85,
+    )
+  }
+}
+
+/** Hammer: small shockwave ring (orange, ~15px) */
+export function impactHammer(pool: ParticlePool, x: number, y: number): void {
+  for (let i = 0; i < 6; i++) {
+    const angle = (i / 6) * Math.PI * 2
+    const speed = 50
+    spawnParticle(
+      pool,
+      x,
+      y,
+      Math.cos(angle) * speed,
+      Math.sin(angle) * speed,
+      0.2,
+      rand(2, 3),
+      0xff8800,
+      0.9,
+      0.7,
+    )
+  }
+}
+
+/** Laser: cyan flash + 2 residual particles */
+export function impactLaser(pool: ParticlePool, x: number, y: number): void {
+  spawnParticle(pool, x, y, 0, 0, 0.1, 5, 0x00ffff, 1, 0.5)
+  for (let i = 0; i < 2; i++) {
+    spawnParticle(
+      pool,
+      x + rand(-4, 4),
+      y + rand(-4, 4),
+      rand(-15, 15),
+      rand(-30, -10),
+      rand(0.3, 0.5),
+      rand(1, 2),
+      pick(CYAN),
+      0.7,
+      0.8,
+    )
+  }
+}
+
+/** Shotgun: 5 small scattered impacts */
+export function impactShotgun(pool: ParticlePool, x: number, y: number): void {
+  for (let i = 0; i < 5; i++) {
+    spawnParticle(
+      pool,
+      x + rand(-8, 8),
+      y + rand(-8, 8),
+      rand(-20, 20),
+      rand(-20, 20),
+      0.1,
+      rand(1, 2),
+      0xffcc00,
+      0.8,
+      0.7,
+    )
+  }
+}
+
+/** Railgun: white flash + sparks + screen shake hint */
+export function impactRailgun(pool: ParticlePool, x: number, y: number): void {
+  // Big white flash
+  spawnParticle(pool, x, y, 0, 0, 0.12, 8, 0xffffff, 1, 0.4)
+  // Sparks
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.random() * Math.PI * 2
+    const speed = rand(50, 100)
+    spawnParticle(
+      pool,
+      x,
+      y,
+      Math.cos(angle) * speed,
+      Math.sin(angle) * speed,
+      0.2,
+      rand(1.5, 2.5),
+      pick(WHITE),
+      0.9,
+      0.65,
+    )
+  }
+}
+
+/** Spawn impact effect based on weapon special kind */
+export function impactForWeapon(pool: ParticlePool, x: number, y: number, weaponKind: string): void {
+  switch (weaponKind) {
+    case 'vulcan-armor-pierce':
+      impactVulcan(pool, x, y)
+      break
+    case 'none':
+      impactCannon(pool, x, y)
+      break
+    case 'sniper-farthest':
+      impactSniper(pool, x, y)
+      break
+    case 'missile-splash':
+      impactMissile(pool, x, y)
+      break
+    case 'hammer-true-damage':
+      impactHammer(pool, x, y)
+      break
+    case 'laser-pierce':
+      impactLaser(pool, x, y)
+      break
+    case 'shotgun-close':
+      impactShotgun(pool, x, y)
+      break
+    case 'railgun-charge':
+      impactRailgun(pool, x, y)
+      break
+    default:
+      impactCannon(pool, x, y)
+      break
+  }
+}

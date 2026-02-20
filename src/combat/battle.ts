@@ -449,6 +449,14 @@ function checkWinCondition(state: InternalState): void {
   }
 }
 
+function removeDecoyUnits(units: BattleUnit[]): void {
+  for (let i = units.length - 1; i >= 0; i--) {
+    if (units[i]!.id < 0) {
+      units.splice(i, 1)
+    }
+  }
+}
+
 function doActivateSkill(
   state: InternalState,
   skillIndex: number,
@@ -459,10 +467,9 @@ function doActivateSkill(
   if (!cd) return false
   const def = getSkillDefinition(cd.name)
 
-  spendSp(state.skillSystem.sp, def.spCost)
-  startCooldown(state.skillSystem, skillIndex)
-
   const effect = def.effect
+  let activated = false
+
   switch (effect.kind) {
     case 'invincible-allies': {
       const ae: ActiveEffect = {
@@ -470,6 +477,7 @@ function doActivateSkill(
         remainingDuration: effect.durationSeconds,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'freeze-enemies': {
@@ -478,6 +486,7 @@ function doActivateSkill(
         remainingDuration: effect.durationSeconds,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'watt-regen-multiplier': {
@@ -487,11 +496,12 @@ function doActivateSkill(
         multiplier: effect.multiplier,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'focus-fire-highest-watt-enemy': {
       const enemies = getAliveUnits(state.units, 'enemy')
-      if (enemies.length === 0) return false
+      if (enemies.length === 0) break
       let highestWatt = enemies[0]!
       for (let i = 1; i < enemies.length; i++) {
         if (enemies[i]!.wattCost > highestWatt.wattCost) {
@@ -504,6 +514,7 @@ function doActivateSkill(
         focusTargetId: highestWatt.id,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'heal-allies-percent-maxhp': {
@@ -514,6 +525,7 @@ function doActivateSkill(
           ally.hp + Math.floor(ally.maxHp * effect.percent),
         )
       }
+      activated = true
       break
     }
     case 'scramble-targeting': {
@@ -522,11 +534,12 @@ function doActivateSkill(
         remainingDuration: effect.durationSeconds,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'area-damage': {
       const enemies = getAliveUnits(state.units, 'enemy')
-      if (enemies.length === 0) return false
+      if (enemies.length === 0) break
       // Find the most clustered enemies: pick center as average position, sort by distance to center
       let sumPos = 0
       for (const e of enemies) sumPos += e.position
@@ -544,6 +557,7 @@ function doActivateSkill(
           targetStats.deaths++
         }
       }
+      activated = true
       break
     }
     case 'defense-buff': {
@@ -553,6 +567,7 @@ function doActivateSkill(
         defenseBonus: effect.defenseBonus,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'fire-rate-buff': {
@@ -562,9 +577,12 @@ function doActivateSkill(
         multiplier: effect.multiplier,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'spawn-decoys': {
+      removeDecoyUnits(state.units)
+
       const positions = [5, 8, 11]
       for (let i = 0; i < effect.count; i++) {
         const decoy: BattleUnit = {
@@ -595,6 +613,7 @@ function doActivateSkill(
         remainingDuration: effect.durationSeconds,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'recall-heal': {
@@ -608,16 +627,22 @@ function doActivateSkill(
         remainingDuration: effect.stunSeconds,
       }
       addActiveEffect(state.skillSystem, ae)
+      activated = true
       break
     }
     case 'watt-instant': {
       state.playerWatt = {
         current: Math.min(WATT_MAX, state.playerWatt.current + effect.amount),
       }
+      activated = true
       break
     }
   }
 
+  if (!activated) return false
+
+  spendSp(state.skillSystem.sp, def.spCost)
+  startCooldown(state.skillSystem, skillIndex)
   return true
 }
 
@@ -637,7 +662,12 @@ function tickInternal(state: InternalState): void {
 
   regenSp(state.skillSystem.sp, state.dt)
 
+  const hadDecoys = hasActiveEffect(state.skillSystem, 'spawn-decoys')
   updateEffects(state.skillSystem, state.dt)
+  const hasDecoys = hasActiveEffect(state.skillSystem, 'spawn-decoys')
+  if (hadDecoys && !hasDecoys) {
+    removeDecoyUnits(state.units)
+  }
   updateCooldowns(state.skillSystem, state.dt)
 
   for (const unit of state.units) {

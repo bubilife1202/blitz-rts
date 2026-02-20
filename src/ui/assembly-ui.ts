@@ -21,6 +21,7 @@ import {
   WEAPON_PARTS,
 } from '../data/parts-data'
 import { SKILLS } from '../data/skills-data'
+import { playSfx } from './audio'
 import { renderMechSvg, renderPartSvg } from './mech-renderer'
 
 export interface AssemblyResult {
@@ -31,6 +32,10 @@ export interface AssemblyResult {
 
 export interface AssemblyUiCallbacks {
   onLaunch(result: AssemblyResult): void
+}
+
+export interface AssemblyUiOptions {
+  readonly ownedParts?: ReadonlySet<PartId>
 }
 
 type PartCategory = 'legs' | 'body' | 'weapon' | 'accessory'
@@ -113,7 +118,14 @@ function findAccessory(id: AccessoryId) {
 export function createAssemblyUi(
   container: HTMLElement,
   callbacks: AssemblyUiCallbacks,
+  options?: AssemblyUiOptions,
 ): { destroy(): void } {
+  const ownedParts = options?.ownedParts
+
+  function isOwned(partId: PartId): boolean {
+    return !ownedParts || ownedParts.has(partId)
+  }
+
   let activeIndex: RosterIndex = 0
   let activeCategory: PartCategory = 'legs'
   let hoverCandidate: { readonly category: PartCategory; readonly partId: PartId | null } | null = null
@@ -153,6 +165,12 @@ export function createAssemblyUi(
       activeIndex = i as RosterIndex
       hoverCandidate = null
       renderAll()
+      // Build-up animation on tab switch
+      if (mechPreviewEl) {
+        mechPreviewEl.classList.remove('mech-preview-build-up')
+        void mechPreviewEl.offsetWidth
+        mechPreviewEl.classList.add('mech-preview-build-up')
+      }
     })
     tabButtons.push(btn)
     buildTabs.appendChild(btn)
@@ -335,6 +353,27 @@ export function createAssemblyUi(
       if (idx !== activeIndex) return b
       return update(current)
     }) as [Build, Build, Build]
+
+    playSfx('equip')
+
+    // Part equip animation
+    if (mechPreviewEl) {
+      mechPreviewEl.classList.add('mech-preview-equipping')
+      setTimeout(() => {
+        updateMechPreview()
+        setTimeout(() => {
+          if (mechPreviewEl) {
+            mechPreviewEl.classList.remove('mech-preview-equipping')
+            mechPreviewEl.classList.add('mech-preview-pop')
+          }
+          setTimeout(() => {
+            if (mechPreviewEl) {
+              mechPreviewEl.classList.remove('mech-preview-pop')
+            }
+          }, 100)
+        }, 150)
+      }, 150)
+    }
   }
 
   function buildWithCandidate(build: Build, candidate: typeof hoverCandidate): Build {
@@ -381,6 +420,7 @@ export function createAssemblyUi(
       readonly sub: string
       readonly selected: boolean
       readonly disabled: boolean
+      readonly locked: boolean
       readonly onPick: () => void
       readonly onHover: (active: boolean) => void
     }): HTMLButtonElement => {
@@ -389,9 +429,14 @@ export function createAssemblyUi(
       btn.className = 'card slot-btn'
       if (params.selected) btn.classList.add('card-selected')
       if (params.disabled) btn.classList.add('card-disabled')
+      if (params.locked) btn.classList.add('card-locked')
       btn.disabled = params.disabled
       btn.innerHTML = `
-        <div class="card-title">${params.title} ${params.selected ? '<span class="equipped-mark">[E]</span>' : ''}</div>
+        <div class="card-title">
+          ${params.title}
+          ${params.selected ? '<span class="equipped-mark">[E]</span>' : ''}
+          ${params.locked ? '<span class="part-lock">잠김</span>' : ''}
+        </div>
         <div class="card-sub mono">${params.sub}</div>
       `
       btn.addEventListener('click', () => {
@@ -407,14 +452,18 @@ export function createAssemblyUi(
 
     if (activeCategory === 'legs') {
       for (const p of LEGS_PARTS) {
+        const locked = !isOwned(p.id)
         const selected = p.id === build.legsId
-        const sub = `이동:${p.moveType}  속도:${p.speed}  적재:${p.loadCapacity}`
+        const sub = locked
+          ? `잠김 · 이동:${p.moveType}  속도:${p.speed}  적재:${p.loadCapacity}`
+          : `이동:${p.moveType}  속도:${p.speed}  적재:${p.loadCapacity}`
         partsList.appendChild(
           makePartButton({
             title: p.name,
             sub,
             selected,
-            disabled: false,
+            disabled: locked,
+            locked,
             onPick: () => setBuild((prev) => ({ ...prev, legsId: p.id })),
             onHover: (active) => {
               hoverCandidate = active ? { category: 'legs', partId: p.id } : null
@@ -429,15 +478,19 @@ export function createAssemblyUi(
 
     if (activeCategory === 'body') {
       for (const p of BODY_PARTS) {
+        const locked = !isOwned(p.id)
         const selected = p.id === build.bodyId
-        const disabled = weaponMount !== null && p.mountType !== weaponMount
-        const sub = `장착:${p.mountType}  HP:${p.hp}  DEF:${p.defense}  WT:${p.weight}`
+        const disabled = locked || (weaponMount !== null && p.mountType !== weaponMount)
+        const sub = locked
+          ? `잠김 · 장착:${p.mountType}  HP:${p.hp}  DEF:${p.defense}  WT:${p.weight}`
+          : `장착:${p.mountType}  HP:${p.hp}  DEF:${p.defense}  WT:${p.weight}`
         partsList.appendChild(
           makePartButton({
             title: p.name,
             sub,
             selected,
             disabled,
+            locked,
             onPick: () => setBuild((prev) => ({ ...prev, bodyId: p.id })),
             onHover: (active) => {
               hoverCandidate = active ? { category: 'body', partId: p.id } : null
@@ -452,15 +505,19 @@ export function createAssemblyUi(
 
     if (activeCategory === 'weapon') {
       for (const p of WEAPON_PARTS) {
+        const locked = !isOwned(p.id)
         const selected = p.id === build.weaponId
-        const disabled = bodyMount !== null && p.mountType !== bodyMount
-        const sub = `장착:${p.mountType}  ATK:${p.attack}  R:${p.range}  FR:${p.fireRate}  WT:${p.weight}`
+        const disabled = locked || (bodyMount !== null && p.mountType !== bodyMount)
+        const sub = locked
+          ? `잠김 · 장착:${p.mountType}  ATK:${p.attack}  R:${p.range}  FR:${p.fireRate}  WT:${p.weight}`
+          : `장착:${p.mountType}  ATK:${p.attack}  R:${p.range}  FR:${p.fireRate}  WT:${p.weight}`
         partsList.appendChild(
           makePartButton({
             title: p.name,
             sub,
             selected,
             disabled,
+            locked,
             onPick: () => setBuild((prev) => ({ ...prev, weaponId: p.id })),
             onHover: (active) => {
               hoverCandidate = active ? { category: 'weapon', partId: p.id } : null
@@ -479,6 +536,7 @@ export function createAssemblyUi(
         sub: '—',
         selected: build.accessoryId === null,
         disabled: false,
+        locked: false,
         onPick: () => setBuild((prev) => ({ ...prev, accessoryId: null })),
         onHover: (active) => {
           hoverCandidate = active ? { category: 'accessory', partId: null } : null
@@ -489,14 +547,18 @@ export function createAssemblyUi(
     )
 
     for (const p of ACCESSORY_PARTS) {
+      const locked = !isOwned(p.id)
       const selected = p.id === build.accessoryId
-      const sub = `WT:${p.weight}  효과:${p.effect.kind}`
+      const sub = locked
+        ? `잠김 · WT:${p.weight}  효과:${p.effect.kind}`
+        : `WT:${p.weight}  효과:${p.effect.kind}`
       partsList.appendChild(
         makePartButton({
           title: p.name,
           sub,
           selected,
-          disabled: false,
+          disabled: locked,
+          locked,
           onPick: () => setBuild((prev) => ({ ...prev, accessoryId: p.id })),
           onHover: (active) => {
             hoverCandidate = active ? { category: 'accessory', partId: p.id } : null

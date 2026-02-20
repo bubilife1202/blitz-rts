@@ -19,10 +19,10 @@ function loadTexture(key: string, svgStr: string): void {
 
   img.onload = () => {
     const canvas = document.createElement('canvas')
-    canvas.width = 200
-    canvas.height = 300
+    canvas.width = 400
+    canvas.height = 600
     const ctx = canvas.getContext('2d')!
-    ctx.drawImage(img, 0, 0, 200, 300)
+    ctx.drawImage(img, 0, 0, 400, 600)
     URL.revokeObjectURL(url)
 
     const texture = Texture.from(canvas)
@@ -43,7 +43,7 @@ export function getMechTexture(build: Build, side: 'player' | 'enemy'): Texture 
   const cached = textureCache.get(key)
   if (cached) return cached
 
-  const svgStr = renderMechSvg(build, 200, side)
+  const svgStr = renderMechSvg(build, 400, side)
   loadTexture(key, svgStr)
   return null
 }
@@ -51,6 +51,6 @@ export function getMechTexture(build: Build, side: 'player' | 'enemy'): Texture 
 export function preloadMechTexture(build: Build, side: 'player' | 'enemy'): void {
   const key = buildKey(build, side)
   if (textureCache.has(key) || loading.has(key)) return
-  const svgStr = renderMechSvg(build, 200, side)
+  const svgStr = renderMechSvg(build, 400, side)
   loadTexture(key, svgStr)
 }

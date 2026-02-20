@@ -8,9 +8,11 @@ import {
   createBattleRenderer,
   updateBattleRenderer,
   destroyBattleRenderer,
+  setPreviewSkill,
   type BattleRendererState,
 } from '../renderer/battle-renderer'
 import type { Application } from 'pixi.js'
+import { playSfx } from './audio'
 
 export interface BattleUiCallbacks {
   onSkillActivate(skillIndex: number): void
@@ -25,6 +27,22 @@ export interface BattleUiHandle {
 }
 
 const TIME_LIMIT_SECONDS = 300
+const COMBAT_LOG_LIMIT = 7
+const BASE_LOG_DAMAGE_THRESHOLD = 80
+const FIRE_SFX_MIN_INTERVAL_MS = 70
+const EXPLOSION_SFX_MIN_INTERVAL_MS = 120
+
+const EFFECT_LABELS: Record<string, string> = {
+  'invincible-allies': 'Shield Burst',
+  'freeze-enemies': 'EMP Strike',
+  'watt-regen-multiplier': 'Overcharge',
+  'focus-fire': 'Focus Fire',
+  'scramble-targeting': 'Scramble',
+  'defense-buff': 'Fortify',
+  'fire-rate-buff': 'Overdrive Protocol',
+  'spawn-decoys': 'Decoy Deployment',
+  'recall-stun': 'Emergency Recall',
+}
 
 function formatTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds))
@@ -72,6 +90,24 @@ export async function createBattleUi(
   topbar.appendChild(topLeft)
   screen.appendChild(title)
   screen.appendChild(topbar)
+
+  // ── Momentum Bar ──
+  const momentumWrap = document.createElement('div')
+  momentumWrap.className = 'momentum-bar-wrap'
+  momentumWrap.innerHTML = `
+    <div class="momentum-bar">
+      <div class="momentum-fill momentum-player" data-role="momentum-player"></div>
+      <div class="momentum-fill momentum-enemy" data-role="momentum-enemy"></div>
+    </div>
+    <div class="momentum-labels">
+      <span class="mono momentum-label-player">아군</span>
+      <span class="mono momentum-label-enemy">적군</span>
+    </div>
+  `
+  screen.appendChild(momentumWrap)
+
+  const momentumPlayerFill = momentumWrap.querySelector<HTMLElement>('[data-role="momentum-player"]')!
+  const momentumEnemyFill = momentumWrap.querySelector<HTMLElement>('[data-role="momentum-enemy"]')!
 
   const layout = document.createElement('div')
   layout.className = 'battle-layout'
@@ -152,6 +188,8 @@ export async function createBattleUi(
   const skillTitleEls: HTMLElement[] = []
   const skillSubEls: HTMLElement[] = []
 
+  let hoveredSkillIndex = -1
+
   for (let i = 0; i < 3; i++) {
     const btn = document.createElement('button')
     btn.type = 'button'
@@ -162,6 +200,8 @@ export async function createBattleUi(
       <progress class="progress progress-danger" data-role="cd" max="1" value="0"></progress>
     `
     btn.addEventListener('click', () => callbacks.onSkillActivate(i))
+    btn.addEventListener('mouseenter', () => { hoveredSkillIndex = i })
+    btn.addEventListener('mouseleave', () => { if (hoveredSkillIndex === i) hoveredSkillIndex = -1 })
     const titleEl = btn.querySelector<HTMLElement>('[data-role="title"]')
     const subEl = btn.querySelector<HTMLElement>('[data-role="sub"]')
     const cdEl = btn.querySelector<HTMLProgressElement>('[data-role="cd"]')
@@ -207,6 +247,14 @@ export async function createBattleUi(
   speedBox.appendChild(speedControls)
   hudBody.appendChild(speedBox)
 
+  const combatLogBox = document.createElement('div')
+  combatLogBox.className = 'combat-log'
+  combatLogBox.innerHTML = `<div class="muted">전투 로그</div>`
+  const combatLogList = document.createElement('div')
+  combatLogList.className = 'combat-log-list'
+  combatLogBox.appendChild(combatLogList)
+  hudBody.appendChild(combatLogBox)
+
   layout.appendChild(fieldPanel)
   layout.appendChild(hudPanel)
   screen.appendChild(layout)
@@ -238,6 +286,32 @@ export async function createBattleUi(
   const spBar = requireEl<HTMLProgressElement>('[data-role="sp"]')
   const wattText = requireEl<HTMLElement>('[data-role="watt-text"]')
   const spText = requireEl<HTMLElement>('[data-role="sp-text"]')
+
+  let telemetryInitialized = false
+  let prevAliveIds = new Set<number>()
+  let prevAttackingIds = new Set<number>()
+  let prevActiveEffects = new Set<string>()
+  let prevPlayerBaseHp = -1
+  let prevEnemyBaseHp = -1
+  let lastFireSfxAt = 0
+  let lastExplosionSfxAt = 0
+
+  function appendCombatLog(
+    elapsedSeconds: number,
+    message: string,
+    tone: 'good' | 'warn' | 'skill' = 'skill',
+  ): void {
+    const item = document.createElement('div')
+    item.className = `combat-log-item ${tone}`
+    item.textContent = `[${formatTime(elapsedSeconds)}] ${message}`
+    combatLogList.prepend(item)
+
+    while (combatLogList.childElementCount > COMBAT_LOG_LIMIT) {
+      const tail = combatLogList.lastElementChild
+      if (!tail) break
+      tail.remove()
+    }
+  }
 
   function syncSpeedButtons(): void {
     for (const b of speedBtns) {
@@ -271,6 +345,24 @@ export async function createBattleUi(
     spBar.value = skills.sp.current
     spText.textContent = `${Math.floor(skills.sp.current)}/${SP_MAX}`
 
+    // Momentum bar
+    const playerUnits = countAliveUnits(state, 'player')
+    const enemyUnits = countAliveUnits(state, 'enemy')
+    const totalUnits = Math.max(1, playerUnits + enemyUnits)
+    const unitRatio = playerUnits / totalUnits
+
+    const playerBaseRatio = state.battlefield.playerBase.hp / state.battlefield.playerBase.maxHp
+    const enemyBaseRatio = state.battlefield.enemyBase.hp / state.battlefield.enemyBase.maxHp
+    const baseRatio = playerBaseRatio / Math.max(0.01, playerBaseRatio + enemyBaseRatio)
+
+    const momentum = unitRatio * 0.6 + baseRatio * 0.4
+    momentumPlayerFill.style.width = `${momentum * 100}%`
+    momentumEnemyFill.style.width = `${(1 - momentum) * 100}%`
+
+    const dominant = momentum > 0.65 || momentum < 0.35
+    momentumPlayerFill.classList.toggle('momentum-pulse', momentum > 0.65)
+    momentumEnemyFill.classList.toggle('momentum-pulse', !dominant ? false : momentum < 0.35)
+
     for (let i = 0; i < 3; i++) {
       const cd = skills.cooldowns[i]
       const name = skills.deck[i]
@@ -290,12 +382,125 @@ export async function createBattleUi(
     }
   }
 
+  function updateCombatTelemetry(state: BattleState): void {
+    const aliveNow = new Set<number>()
+    const attackingNow = new Set<number>()
+    const unitsById = new Map<number, (typeof state.units)[number]>()
+    for (const unit of state.units) {
+      unitsById.set(unit.id, unit)
+      if (unit.state !== 'dead') aliveNow.add(unit.id)
+      if (unit.state === 'attacking') attackingNow.add(unit.id)
+    }
+
+    const activeEffectsNow = new Set<string>()
+    for (const effect of state.skillSystem.activeEffects) {
+      activeEffectsNow.add(effect.kind)
+    }
+
+    if (!telemetryInitialized) {
+      telemetryInitialized = true
+      prevAliveIds = aliveNow
+      prevAttackingIds = attackingNow
+      prevActiveEffects = activeEffectsNow
+      prevPlayerBaseHp = state.battlefield.playerBase.hp
+      prevEnemyBaseHp = state.battlefield.enemyBase.hp
+      appendCombatLog(state.elapsedSeconds, '교전 시작', 'skill')
+      return
+    }
+
+    const nowMs = performance.now()
+
+    let playerDeaths = 0
+    let enemyDeaths = 0
+    for (const id of prevAliveIds) {
+      if (aliveNow.has(id)) continue
+      const dead = unitsById.get(id)
+      if (!dead) continue
+      if (dead.side === 'enemy') enemyDeaths += 1
+      if (dead.side === 'player') playerDeaths += 1
+    }
+
+    if (enemyDeaths > 0) {
+      appendCombatLog(state.elapsedSeconds, `적 유닛 ${enemyDeaths}기 격파`, 'good')
+    }
+    if (playerDeaths > 0) {
+      appendCombatLog(state.elapsedSeconds, `아군 유닛 ${playerDeaths}기 손실`, 'warn')
+    }
+
+    let newlyAttacking = 0
+    for (const id of attackingNow) {
+      if (!prevAttackingIds.has(id)) newlyAttacking += 1
+    }
+
+    if (newlyAttacking > 0 && nowMs - lastFireSfxAt >= FIRE_SFX_MIN_INTERVAL_MS) {
+      playSfx('fire')
+      lastFireSfxAt = nowMs
+    }
+    if (
+      (enemyDeaths > 0 || playerDeaths > 0)
+      && nowMs - lastExplosionSfxAt >= EXPLOSION_SFX_MIN_INTERVAL_MS
+    ) {
+      playSfx('explosion')
+      lastExplosionSfxAt = nowMs
+    }
+
+    const playerBaseHp = state.battlefield.playerBase.hp
+    if (
+      prevPlayerBaseHp >= 0
+      && playerBaseHp < prevPlayerBaseHp - BASE_LOG_DAMAGE_THRESHOLD
+    ) {
+      appendCombatLog(
+        state.elapsedSeconds,
+        `아군 기지 피격 -${Math.round(prevPlayerBaseHp - playerBaseHp)}`,
+        'warn',
+      )
+    }
+
+    const enemyBaseHp = state.battlefield.enemyBase.hp
+    if (
+      prevEnemyBaseHp >= 0
+      && enemyBaseHp < prevEnemyBaseHp - BASE_LOG_DAMAGE_THRESHOLD
+    ) {
+      appendCombatLog(
+        state.elapsedSeconds,
+        `적 기지 타격 -${Math.round(prevEnemyBaseHp - enemyBaseHp)}`,
+        'good',
+      )
+    }
+
+    for (const effectKind of activeEffectsNow) {
+      if (!prevActiveEffects.has(effectKind)) {
+        appendCombatLog(
+          state.elapsedSeconds,
+          `스킬 발동: ${EFFECT_LABELS[effectKind] ?? effectKind}`,
+          'skill',
+        )
+      }
+    }
+
+    prevAliveIds = aliveNow
+    prevAttackingIds = attackingNow
+    prevActiveEffects = activeEffectsNow
+    prevPlayerBaseHp = playerBaseHp
+    prevEnemyBaseHp = enemyBaseHp
+  }
+
   return {
     update(state: BattleState, realDelta?: number): void {
       updateHud(state, state.skillSystem)
+      updateCombatTelemetry(state)
 
-      if (renderer && realDelta != null && realDelta > 0) {
-        updateBattleRenderer(renderer, state, realDelta)
+      if (renderer) {
+        // Update skill preview from hover
+        const skills = state.skillSystem
+        const previewSkill = hoveredSkillIndex >= 0 && hoveredSkillIndex < 3
+          ? skills.deck[hoveredSkillIndex] ?? null
+          : null
+        setPreviewSkill(renderer, previewSkill)
+
+        if (realDelta != null && realDelta > 0) {
+          updateBattleRenderer(renderer, state, realDelta)
+        }
       }
     },
     showCallout(text: string, speaker: string): void {

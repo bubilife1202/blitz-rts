@@ -174,12 +174,13 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 11px;
+  padding: 4px 10px;
+  font-size: 13px;
   border-radius: 999px;
-  border: 1px solid rgba(79, 195, 247, 0.18);
+  border: 1px solid rgba(79, 195, 247, 0.22);
   background:
-    linear-gradient(180deg, rgba(79, 195, 247, 0.08), transparent 55%),
-    rgba(26, 26, 46, 0.68);
+    linear-gradient(180deg, rgba(79, 195, 247, 0.10), transparent 55%),
+    rgba(26, 26, 46, 0.78);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
@@ -229,10 +230,10 @@ select {
 .panel-title {
   margin: 0;
   font-family: var(--display);
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(232, 240, 248, 0.82);
+  color: rgba(232, 240, 248, 0.88);
 }
 
 .panel-body {
@@ -426,9 +427,28 @@ select {
   cursor: not-allowed;
 }
 
+.card-locked {
+  border-color: rgba(255, 213, 79, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 213, 79, 0.08), transparent 60%),
+    rgba(13, 17, 23, 0.22);
+}
+
 .card-title {
   font-weight: 700;
   color: rgba(232, 240, 248, 0.96);
+}
+
+.part-lock {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 213, 79, 0.55);
+  color: rgba(255, 238, 189, 0.96);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.01em;
 }
 
 .card-sub {
@@ -483,7 +503,7 @@ select {
 
 .progress {
   width: 100%;
-  height: 12px;
+  height: 10px;
   border-radius: 999px;
   overflow: hidden;
   background: rgba(13, 17, 23, 0.35);
@@ -511,7 +531,12 @@ select {
 
 .progress-gold::-webkit-progress-value,
 .progress-gold::-moz-progress-bar {
-  background: var(--gold);
+  background: linear-gradient(90deg, #ffb300, var(--gold));
+}
+
+.progress-sp::-webkit-progress-value,
+.progress-sp::-moz-progress-bar {
+  background: linear-gradient(90deg, #7c4dff, #b388ff);
 }
 
 .progress-success::-webkit-progress-value,
@@ -523,13 +548,17 @@ select {
   width: 100%;
   border-collapse: collapse;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .stat-table td,
 .stat-table th {
-  padding: 7px 0;
+  padding: 8px 4px;
   border-bottom: 1px solid rgba(79, 195, 247, 0.12);
+}
+
+.stat-table tbody tr:hover {
+  background: rgba(79, 195, 247, 0.04);
 }
 
 .stat-table td:first-child,
@@ -705,12 +734,13 @@ select {
   position: relative;
   min-height: 520px;
   border-radius: var(--r-lg);
-  border: 1px solid rgba(79, 195, 247, 0.20);
+  border: 1px solid rgba(79, 195, 247, 0.24);
   background:
     repeating-linear-gradient(0deg, transparent 0, transparent 18px, rgba(79, 195, 247, 0.08) 19px),
     repeating-linear-gradient(90deg, transparent 0, transparent 18px, rgba(79, 195, 247, 0.08) 19px),
-    radial-gradient(900px 600px at 50% 0%, rgba(79, 195, 247, 0.10), transparent 60%),
-    rgba(13, 17, 23, 0.18);
+    radial-gradient(600px 400px at 50% 50%, rgba(79, 195, 247, 0.12), transparent 70%),
+    radial-gradient(900px 600px at 50% 0%, rgba(79, 195, 247, 0.08), transparent 60%),
+    rgba(13, 17, 23, 0.28);
   overflow: hidden;
 }
 
@@ -1082,6 +1112,9 @@ select {
 .skill-toggle[aria-pressed='true'] {
   border-color: rgba(79, 195, 247, 0.95);
   box-shadow: 0 0 0 3px rgba(79, 195, 247, 0.10);
+  background:
+    linear-gradient(180deg, rgba(79, 195, 247, 0.12), transparent 60%),
+    rgba(13, 17, 23, 0.25);
 }
 
 .skill-meta {
@@ -1125,14 +1158,55 @@ select {
   width: 100%;
   height: auto;
   border-radius: var(--r-lg);
-  border: 1px solid rgba(79, 195, 247, 0.18);
+  border: 1px solid rgba(79, 195, 247, 0.28);
   background: rgba(13, 17, 23, 0.22);
+  box-shadow:
+    0 0 20px rgba(79, 195, 247, 0.08),
+    inset 0 0 60px rgba(0, 0, 0, 0.3);
 }
 
 .hud {
   display: grid;
   gap: 12px;
   align-content: start;
+}
+
+.combat-log {
+  display: grid;
+  gap: 8px;
+}
+
+.combat-log-list {
+  display: grid;
+  gap: 6px;
+  max-height: 168px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.combat-log-item {
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(79, 195, 247, 0.16);
+  background: rgba(13, 17, 23, 0.22);
+  color: rgba(232, 240, 248, 0.86);
+  padding: 7px 9px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.combat-log-item.good {
+  border-color: rgba(102, 187, 106, 0.45);
+  color: rgba(200, 245, 205, 0.95);
+}
+
+.combat-log-item.warn {
+  border-color: rgba(239, 83, 80, 0.52);
+  color: rgba(255, 213, 212, 0.95);
+}
+
+.combat-log-item.skill {
+  border-color: rgba(255, 213, 79, 0.52);
+  color: rgba(255, 238, 189, 0.95);
 }
 
 .bar {
@@ -1145,7 +1219,8 @@ select {
   justify-content: space-between;
   gap: 10px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
 }
 
@@ -1160,10 +1235,16 @@ select {
   padding: 12px;
   border-radius: var(--r-md);
   border: 1px solid rgba(79, 195, 247, 0.18);
+  border-left: 3px solid #00ff88;
   background: rgba(13, 17, 23, 0.18);
   cursor: pointer;
   color: rgba(232, 240, 248, 0.92);
   overflow: hidden;
+}
+
+.skill-btn:disabled {
+  border-left: 3px solid #666;
+  opacity: 0.5;
 }
 
 .skill-btn-title {
@@ -1186,6 +1267,14 @@ select {
   flex-wrap: wrap;
 }
 
+.speed-controls .btn[aria-pressed="true"] {
+  background: var(--primary);
+  color: #000;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(79, 195, 247, 0.4);
+  border-color: var(--primary);
+}
+
 .result-layout {
   max-width: 720px;
   margin: 36px auto;
@@ -1203,11 +1292,12 @@ select {
   font-weight: 900;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  font-size: 28px;
+  font-size: 32px;
 }
 
 .result-victory {
   color: rgba(184, 234, 255, 0.98);
+  text-shadow: 0 0 20px rgba(79, 195, 247, 0.4);
 }
 
 .result-defeat {
@@ -1266,9 +1356,18 @@ select {
 
 .result-actions {
   display: flex;
-  gap: 10px;
+  gap: 14px;
   justify-content: center;
   flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.result-actions .btn {
+  min-width: 140px;
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
 .bp-mech-preview {
@@ -1308,8 +1407,15 @@ select {
 .result-mech-preview {
   display: flex;
   justify-content: center;
-  margin: 8px 0;
-  filter: drop-shadow(0 0 8px rgba(79, 195, 247, 0.22));
+  margin: 12px 0;
+  filter: drop-shadow(0 0 14px rgba(79, 195, 247, 0.35));
+}
+
+.result-mech-preview svg,
+.result-mech-preview img {
+  width: auto;
+  height: auto;
+  max-height: 80px;
 }
 
 .result-defeat .result-mech-preview {
@@ -1627,4 +1733,237 @@ select {
   .card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* ── Mode Cards (Main Menu) ── */
+
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.mode-card {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  border-radius: var(--r-md);
+  border: 2px solid rgba(79, 195, 247, 0.18);
+  background:
+    linear-gradient(180deg, rgba(79, 195, 247, 0.06), transparent 55%),
+    rgba(13, 17, 23, 0.25);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px;
+  transition:
+    transform 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out);
+}
+
+.mode-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 3px rgba(79, 195, 247, 0.10);
+}
+
+.mode-card[aria-selected='true'] {
+  box-shadow: 0 0 16px rgba(79, 195, 247, 0.18);
+}
+
+.mode-card-icon {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.mode-card-title {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(232, 240, 248, 0.95);
+}
+
+.mode-card-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mode-card--campaign {
+  border-color: rgba(255, 213, 79, 0.45);
+}
+
+.mode-card--campaign[aria-selected='true'] {
+  border-color: rgba(255, 213, 79, 0.85);
+  box-shadow: 0 0 16px rgba(255, 213, 79, 0.18);
+}
+
+.mode-card--campaign:hover {
+  border-color: rgba(255, 213, 79, 0.70);
+}
+
+.mode-card--free {
+  border-color: rgba(79, 195, 247, 0.45);
+}
+
+.mode-card--free[aria-selected='true'] {
+  border-color: rgba(79, 195, 247, 0.85);
+  box-shadow: 0 0 16px rgba(79, 195, 247, 0.18);
+}
+
+.mode-card--free:hover {
+  border-color: rgba(79, 195, 247, 0.70);
+}
+
+.mode-card--coop {
+  border-color: rgba(102, 187, 106, 0.45);
+}
+
+.mode-card--coop[aria-selected='true'] {
+  border-color: rgba(102, 187, 106, 0.85);
+  box-shadow: 0 0 16px rgba(102, 187, 106, 0.18);
+}
+
+.mode-card--coop:hover {
+  border-color: rgba(102, 187, 106, 0.70);
+}
+
+/* ── Enemy Grid Horizontal ── */
+
+.enemy-grid-horizontal {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding-bottom: 8px;
+  padding-right: 40px;
+  scroll-padding: 0 40px;
+}
+
+.enemy-card-horizontal {
+  flex: 0 0 210px;
+  min-height: 280px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(79, 195, 247, 0.18);
+  background:
+    linear-gradient(180deg, rgba(79, 195, 247, 0.06), transparent 55%),
+    rgba(13, 17, 23, 0.18);
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  transition:
+    transform 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out);
+}
+
+.enemy-card-horizontal:hover {
+  transform: translateY(-2px);
+  border-color: rgba(79, 195, 247, 0.58);
+  box-shadow: 0 0 0 3px rgba(79, 195, 247, 0.10);
+}
+
+.enemy-hover-details {
+  display: none;
+}
+
+.enemy-card-horizontal:hover .enemy-hover-details {
+  display: block;
+}
+
+/* ── Assembly: Active Slot Pulse ── */
+
+.mech-slot[aria-current='true'] {
+  box-shadow: 0 0 12px rgba(79, 195, 247, 0.3);
+  border-color: var(--primary);
+  animation: slot-pulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes slot-pulse {
+  from { box-shadow: 0 0 10px rgba(79, 195, 247, 0.20); }
+  to { box-shadow: 0 0 20px rgba(79, 195, 247, 0.45); }
+}
+
+/* ── Assembly: Part Equip Animation ── */
+
+.mech-preview-equipping {
+  transform: translateY(-50%) scale(0.95);
+  opacity: 0.7;
+  transition: transform 150ms var(--ease-out), opacity 150ms var(--ease-out);
+}
+
+.mech-preview-pop {
+  transform: translateY(-50%) scale(1.05);
+  transition: transform 100ms var(--ease-snap);
+}
+
+/* ── Assembly: Build-up Animation ── */
+
+@keyframes build-up {
+  from { clip-path: inset(100% 0 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+.mech-preview-build-up {
+  animation: build-up 400ms var(--ease-out) both;
+}
+
+/* ── Battle: Momentum Bar ── */
+
+.momentum-bar-wrap {
+  margin-bottom: 8px;
+  padding: 0 12px;
+}
+
+.momentum-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid rgba(79, 195, 247, 0.25);
+}
+
+.momentum-fill {
+  transition: width 0.3s ease;
+}
+
+.momentum-player {
+  background: linear-gradient(90deg, var(--primary), #29b6f6);
+}
+
+.momentum-enemy {
+  background: linear-gradient(270deg, var(--danger), #ef5350);
+}
+
+.momentum-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-top: 4px;
+}
+
+.momentum-label-player {
+  color: var(--primary);
+}
+
+.momentum-label-enemy {
+  color: var(--danger);
+}
+
+.momentum-pulse {
+  animation: momentum-glow 1s ease-in-out infinite alternate;
+}
+
+@keyframes momentum-glow {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.3); }
 }

@@ -8,6 +8,7 @@ export type SfxType =
   | 'purchase'
   | 'victory'
   | 'defeat'
+  | 'equip'
 
 const MUTE_STORAGE_KEY = 'blitz-rts-muted'
 const BGM_VOLUME = 0.15
@@ -106,6 +107,9 @@ export function playSfx(type: SfxType): void {
       break
     case 'defeat':
       playDefeatSfx(ctx)
+      break
+    case 'equip':
+      playEquipSfx(ctx)
       break
   }
 }
@@ -502,6 +506,27 @@ function playDefeatSfx(ctx: AudioContext): void {
       lowpass: 1400,
     }, now + i * 0.16)
   }
+}
+
+function playEquipSfx(ctx: AudioContext): void {
+  const now = ctx.currentTime
+  // Metallic click: 1200→800Hz sine, 0.06s
+  playSimpleTone(ctx, {
+    frequencyStart: 1200,
+    frequencyEnd: 800,
+    duration: 0.06,
+    volume: 0.25,
+    type: 'sine',
+    destination: sfxGain!,
+  }, now)
+  // Lock clunk: 200Hz triangle, 0.08s
+  playSimpleTone(ctx, {
+    frequencyStart: 200,
+    duration: 0.08,
+    volume: 0.2,
+    type: 'triangle',
+    destination: sfxGain!,
+  }, now + 0.04)
 }
 
 function playSimpleTone(

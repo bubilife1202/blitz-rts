@@ -254,6 +254,8 @@ export function startGame(): void {
           lastAssembly = result
           goBattle()
         },
+      }, {
+        ownedParts: inventory.ownedParts,
       }),
     )
 
@@ -417,6 +419,8 @@ export function startGame(): void {
           lastAssembly = result
           goCoopBattle(missionIndex)
         },
+      }, {
+        ownedParts: inventory.ownedParts,
       }),
     )
   }
@@ -608,6 +612,8 @@ export function startGame(): void {
           lastAssembly = result
           goFreeCoopBattle()
         },
+      }, {
+        ownedParts: inventory.ownedParts,
       }),
     )
   }
