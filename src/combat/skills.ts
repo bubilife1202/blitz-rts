@@ -25,6 +25,18 @@ export type ActiveEffect =
       readonly focusTargetId: number
     }
   | { readonly kind: 'scramble-targeting'; remainingDuration: number }
+  | {
+      readonly kind: 'defense-buff'
+      remainingDuration: number
+      readonly defenseBonus: number
+    }
+  | {
+      readonly kind: 'fire-rate-buff'
+      remainingDuration: number
+      readonly multiplier: number
+    }
+  | { readonly kind: 'spawn-decoys'; remainingDuration: number }
+  | { readonly kind: 'recall-stun'; remainingDuration: number }
 
 export type ActiveEffectKind = ActiveEffect['kind']
 
@@ -152,5 +164,21 @@ export function getWattRegenMultiplier(
   )
   if (effect && effect.kind === 'watt-regen-multiplier')
     return effect.multiplier
+  return 1
+}
+
+export function getDefenseBuffBonus(
+  system: SkillSystemState,
+): number {
+  const effect = system.activeEffects.find(e => e.kind === 'defense-buff')
+  if (effect && effect.kind === 'defense-buff') return effect.defenseBonus
+  return 0
+}
+
+export function getFireRateMultiplier(
+  system: SkillSystemState,
+): number {
+  const effect = system.activeEffects.find(e => e.kind === 'fire-rate-buff')
+  if (effect && effect.kind === 'fire-rate-buff') return effect.multiplier
   return 1
 }

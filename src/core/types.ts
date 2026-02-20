@@ -1,7 +1,7 @@
-export type LegsId = 'MP01' | 'MP02' | 'MP03' | 'MP04' | 'MP05'
-export type BodyId = 'BP01' | 'BP02' | 'BP03' | 'BP04' | 'BP05'
-export type WeaponId = 'AP01' | 'AP02' | 'AP03' | 'AP04' | 'AP05'
-export type AccessoryId = 'ACP01' | 'ACP02' | 'ACP03' | 'ACP04' | 'ACP05'
+export type LegsId = 'MP01' | 'MP02' | 'MP03' | 'MP04' | 'MP05' | 'MP06' | 'MP07' | 'MP08'
+export type BodyId = 'BP01' | 'BP02' | 'BP03' | 'BP04' | 'BP05' | 'BP06' | 'BP07'
+export type WeaponId = 'AP01' | 'AP02' | 'AP03' | 'AP04' | 'AP05' | 'AP06' | 'AP07' | 'AP08'
+export type AccessoryId = 'ACP01' | 'ACP02' | 'ACP03' | 'ACP04' | 'ACP05' | 'ACP06' | 'ACP07'
 
 export type PartId = LegsId | BodyId | WeaponId | AccessoryId
 
@@ -14,6 +14,8 @@ export type LegsMoveType =
   | 'flying'
   | 'tank'
   | 'quadruped'
+  | 'wheeled'
+  | 'hexapod'
 
 export type WattTier = 'T1' | 'T2' | 'T3' | 'T4'
 
@@ -23,6 +25,9 @@ export type WeaponSpecial =
   | { readonly kind: 'sniper-farthest' }
   | { readonly kind: 'missile-splash'; readonly splashRange: 2 }
   | { readonly kind: 'hammer-true-damage'; readonly maxHpPercent: 0.02 }
+  | { readonly kind: 'laser-pierce'; readonly pierceCount: 3 }
+  | { readonly kind: 'shotgun-close'; readonly closeRangeMultiplier: 1.5; readonly closeRange: 2 }
+  | { readonly kind: 'railgun-charge'; readonly chargeSeconds: 3; readonly chargeMultiplier: 3 }
 
 export type AccessoryEffect =
   | { readonly kind: 'attack-flat'; readonly attackBonus: 10 }
@@ -38,6 +43,8 @@ export type AccessoryEffect =
       readonly rangeBonus: 2
       readonly fireRateBonus: 1
     }
+  | { readonly kind: 'speed-flat'; readonly speedBonus: 2 }
+  | { readonly kind: 'stealth'; readonly revealOnAttack: true }
 
 export type SkillName =
   | 'Shield Burst'
@@ -46,6 +53,12 @@ export type SkillName =
   | 'Focus Fire'
   | 'Repair Pulse'
   | 'Scramble'
+  | 'Artillery Barrage'
+  | 'Fortify'
+  | 'Overdrive Protocol'
+  | 'Decoy Deployment'
+  | 'Emergency Recall'
+  | 'Watt Surge'
 
 export type SkillEffect =
   | { readonly kind: 'invincible-allies'; readonly durationSeconds: 3 }
@@ -58,6 +71,12 @@ export type SkillEffect =
   | { readonly kind: 'focus-fire-highest-watt-enemy'; readonly durationSeconds: 10 }
   | { readonly kind: 'heal-allies-percent-maxhp'; readonly percent: 0.15 }
   | { readonly kind: 'scramble-targeting'; readonly durationSeconds: 8 }
+  | { readonly kind: 'area-damage'; readonly damage: 200; readonly tileRadius: 5 }
+  | { readonly kind: 'defense-buff'; readonly defenseBonus: 10; readonly durationSeconds: 8 }
+  | { readonly kind: 'fire-rate-buff'; readonly multiplier: 1.5; readonly durationSeconds: 6 }
+  | { readonly kind: 'spawn-decoys'; readonly count: 3; readonly hp: 300; readonly durationSeconds: 10 }
+  | { readonly kind: 'recall-heal'; readonly stunSeconds: 2 }
+  | { readonly kind: 'watt-instant'; readonly amount: 150 }
 
 export type SkillDeck = readonly [SkillName, SkillName, SkillName]
 
@@ -179,6 +198,15 @@ export interface SkillDefinition {
   readonly cooldownSeconds: number
   readonly effect: SkillEffect
 }
+
+// ─── Co-op Constants ─────────────────────────────────
+
+export const COOP_BASE_HP = 3000
+export const COOP_UNIT_CAP = 10
+export const COOP_WATT_REGEN = 15
+export const COOP_SP_REGEN = 4
+
+export type PartnerPersonalityId = 'vanguard' | 'bastion' | 'artillery' | 'support'
 
 // ─── Synergy System ────────────────────────────────────
 

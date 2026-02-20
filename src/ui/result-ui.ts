@@ -1,6 +1,7 @@
 import type { BattleResult, BattleOutcome } from '../combat/battle'
-import type { RosterIndex } from '../core/types'
+import type { Build, RosterIndex } from '../core/types'
 import { analyzeBattle } from '../combat/analysis'
+import { renderMechSvg } from './mech-renderer'
 
 export interface ResultUiCallbacks {
   onPlayAgain(): void
@@ -71,6 +72,12 @@ export function createResultUi(
   const body = document.createElement('div')
   body.className = 'panel-body'
 
+  const RESULT_MECH_BUILDS: readonly Build[] = [
+    { legsId: 'MP01', bodyId: 'BP01', weaponId: 'AP01', accessoryId: null },
+    { legsId: 'MP02', bodyId: 'BP02', weaponId: 'AP02', accessoryId: null },
+    { legsId: 'MP04', bodyId: 'BP03', weaponId: 'AP04', accessoryId: null },
+  ]
+
   const banner = document.createElement('div')
   banner.className = `result-banner ${OUTCOME_CLASSES[result.outcome]}`
   const bannerTitle = document.createElement('div')
@@ -79,7 +86,12 @@ export function createResultUi(
   const bannerSub = document.createElement('div')
   bannerSub.className = 'muted'
   bannerSub.textContent = `MVP: 빌드 ${buildLabel(mvpIndex(result))}`
+  const bannerMech = document.createElement('div')
+  bannerMech.className = 'result-mech-preview'
+  const side = result.outcome === 'enemy_win' ? 'enemy' as const : 'player' as const
+  bannerMech.innerHTML = renderMechSvg(RESULT_MECH_BUILDS[mvpIndex(result)]!, 42, side)
   banner.appendChild(bannerTitle)
+  banner.appendChild(bannerMech)
   banner.appendChild(bannerSub)
 
   const goldReward = GOLD_REWARDS[result.outcome]

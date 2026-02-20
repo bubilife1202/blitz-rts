@@ -2,6 +2,7 @@ import {
   BASE_DEFENSE,
   BASE_HP,
   BATTLEFIELD_TILES,
+  COOP_BASE_HP,
   UNIT_CAP_PER_SIDE,
 } from '../core/types'
 
@@ -51,4 +52,18 @@ export function damageBase(base: Base, damage: number): void {
 
 export function isBaseDestroyed(base: Base): boolean {
   return base.hp <= 0
+}
+
+export function createCoopBattlefield(
+  baseHp?: number,
+  enemyBaseHp?: number,
+): BattlefieldState {
+  const allyHp = baseHp ?? COOP_BASE_HP
+  const foeHp = enemyBaseHp ?? COOP_BASE_HP
+  return {
+    tiles: BATTLEFIELD_TILES,
+    playerBase: { hp: allyHp, maxHp: allyHp, defense: BASE_DEFENSE },
+    enemyBase: { hp: foeHp, maxHp: foeHp, defense: BASE_DEFENSE },
+    unitCapPerSide: 20, // 10 player + 10 partner
+  }
 }

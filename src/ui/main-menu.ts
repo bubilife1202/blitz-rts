@@ -1,8 +1,14 @@
 import { ENEMY_PRESETS } from '../data/enemies-data'
+import { isMuted, playSfx, setMuted } from './audio'
+import { renderMechSvg } from './mech-renderer'
 
 export interface MainMenuCallbacks {
   onSelectEnemy(presetIndex: number): void
   onGoShop(): void
+  onShowGuide(): void
+  onReplayTutorial(): void
+  onCampaign?(): void
+  onCoopBattle?(): void
 }
 
 const STAR_MAP: Record<string, string> = {
@@ -52,8 +58,39 @@ export function createMainMenu(
   shopBtn.textContent = '상점'
   shopBtn.addEventListener('click', () => callbacks.onGoShop())
 
+  const guideBtn = document.createElement('button')
+  guideBtn.type = 'button'
+  guideBtn.className = 'btn btn-ghost'
+  guideBtn.textContent = '게임 설명'
+  guideBtn.addEventListener('click', () => callbacks.onShowGuide())
+
+  const replayTutorialBtn = document.createElement('button')
+  replayTutorialBtn.type = 'button'
+  replayTutorialBtn.className = 'btn btn-ghost'
+  replayTutorialBtn.textContent = '다시 보기'
+  replayTutorialBtn.addEventListener('click', () => callbacks.onReplayTutorial())
+
+  const muteBtn = document.createElement('button')
+  muteBtn.type = 'button'
+  muteBtn.className = 'btn btn-ghost'
+
+  const syncMuteButtonLabel = (): void => {
+    muteBtn.textContent = isMuted() ? '🔇' : '🔊'
+  }
+  syncMuteButtonLabel()
+
+  muteBtn.addEventListener('click', () => {
+    setMuted(!isMuted())
+    syncMuteButtonLabel()
+    playSfx('click')
+  })
+
+  const actionMeta = document.createElement('div')
+  actionMeta.className = 'meta'
+  actionMeta.append(muteBtn, guideBtn, replayTutorialBtn, shopBtn)
+
   topbar.appendChild(meta)
-  topbar.appendChild(shopBtn)
+  topbar.appendChild(actionMeta)
 
   const panel = document.createElement('div')
   panel.className = 'panel'
@@ -120,8 +157,18 @@ export function createMainMenu(
       tagRow.appendChild(tag)
     }
 
+    const mechRow = document.createElement('div')
+    mechRow.className = 'enemy-mech-row'
+    for (const build of preset.roster) {
+      const mechEl = document.createElement('div')
+      mechEl.className = 'enemy-mech-thumb'
+      mechEl.innerHTML = renderMechSvg(build, 28, 'enemy')
+      mechRow.appendChild(mechEl)
+    }
+
     descEl.appendChild(kickerEl)
     descEl.appendChild(starsEl)
+    descEl.appendChild(mechRow)
     descEl.appendChild(scoutDesc)
     descEl.appendChild(stratEl)
     descEl.appendChild(tagRow)
@@ -137,8 +184,35 @@ export function createMainMenu(
     list.appendChild(btn)
   }
 
+  const modePanel = document.createElement('div')
+  modePanel.className = 'panel'
+  modePanel.innerHTML = `
+    <div class="panel-header">
+      <h2 class="panel-title">게임 모드</h2>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row" data-role="mode-buttons"></div>
+    </div>
+  `
+  const modeButtons = modePanel.querySelector<HTMLElement>('[data-role="mode-buttons"]')!
+
+  const campaignBtn = document.createElement('button')
+  campaignBtn.type = 'button'
+  campaignBtn.className = 'btn btn-primary'
+  campaignBtn.textContent = '캠페인'
+  campaignBtn.addEventListener('click', () => callbacks.onCampaign?.())
+  modeButtons.appendChild(campaignBtn)
+
+  const coopBtn = document.createElement('button')
+  coopBtn.type = 'button'
+  coopBtn.className = 'btn'
+  coopBtn.textContent = '코옵 프리배틀'
+  coopBtn.addEventListener('click', () => callbacks.onCoopBattle?.())
+  modeButtons.appendChild(coopBtn)
+
   screen.appendChild(title)
   screen.appendChild(topbar)
+  screen.appendChild(modePanel)
   screen.appendChild(panel)
 
   container.replaceChildren(screen)

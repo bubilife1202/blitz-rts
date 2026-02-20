@@ -163,6 +163,8 @@ function applyAccessory(core: {
         fireRate: core.fireRate + accessory.effect.fireRateBonus,
       }
     case 'watt-cost-multiplier':
+    case 'speed-flat':
+    case 'stealth':
       return core
   }
 }

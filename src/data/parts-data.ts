@@ -52,6 +52,33 @@ export const LEGS_PARTS = [
     loadCapacity: 300,
     weight: 0,
   },
+  {
+    slot: 'legs',
+    id: 'MP06',
+    name: 'Strider',
+    moveType: 'wheeled',
+    speed: 7,
+    loadCapacity: 170,
+    weight: 0,
+  },
+  {
+    slot: 'legs',
+    id: 'MP07',
+    name: 'Goliath',
+    moveType: 'hexapod',
+    speed: 4,
+    loadCapacity: 280,
+    weight: 0,
+  },
+  {
+    slot: 'legs',
+    id: 'MP08',
+    name: 'Phantom',
+    moveType: 'flying',
+    speed: 9,
+    loadCapacity: 120,
+    weight: 0,
+  },
 ] as const satisfies readonly LegsPart[]
 
 export const BODY_PARTS = [
@@ -104,6 +131,26 @@ export const BODY_PARTS = [
     defense: 25,
     sight: 4,
     weight: 200,
+  },
+  {
+    slot: 'body',
+    id: 'BP06',
+    name: 'Recon Frame',
+    mountType: 'arm',
+    hp: 200,
+    defense: 3,
+    sight: 12,
+    weight: 40,
+  },
+  {
+    slot: 'body',
+    id: 'BP07',
+    name: 'Assault Chassis',
+    mountType: 'shoulder',
+    hp: 600,
+    defense: 15,
+    sight: 6,
+    weight: 150,
   },
 ] as const satisfies readonly BodyPart[]
 
@@ -163,6 +210,39 @@ export const WEAPON_PARTS = [
     weight: 100,
     special: { kind: 'hammer-true-damage', maxHpPercent: 0.02 },
   },
+  {
+    slot: 'weapon',
+    id: 'AP06',
+    name: 'Laser',
+    mountType: 'arm',
+    attack: 35,
+    range: 8,
+    fireRate: 2,
+    weight: 90,
+    special: { kind: 'laser-pierce', pierceCount: 3 },
+  },
+  {
+    slot: 'weapon',
+    id: 'AP07',
+    name: 'Shotgun',
+    mountType: 'arm',
+    attack: 20,
+    range: 3,
+    fireRate: 6,
+    weight: 70,
+    special: { kind: 'shotgun-close', closeRangeMultiplier: 1.5, closeRange: 2 },
+  },
+  {
+    slot: 'weapon',
+    id: 'AP08',
+    name: 'Railgun',
+    mountType: 'top',
+    attack: 100,
+    range: 12,
+    fireRate: 0.5,
+    weight: 160,
+    special: { kind: 'railgun-charge', chargeSeconds: 3, chargeMultiplier: 3 },
+  },
 ] as const satisfies readonly WeaponPart[]
 
 export const ACCESSORY_PARTS = [
@@ -204,6 +284,20 @@ export const ACCESSORY_PARTS = [
       rangeBonus: 2,
       fireRateBonus: 1,
     },
+  },
+  {
+    slot: 'accessory',
+    id: 'ACP06',
+    name: 'Speed Booster',
+    weight: 20,
+    effect: { kind: 'speed-flat', speedBonus: 2 },
+  },
+  {
+    slot: 'accessory',
+    id: 'ACP07',
+    name: 'Stealth Module',
+    weight: 25,
+    effect: { kind: 'stealth', revealOnAttack: true },
   },
 ] as const satisfies readonly AccessoryPart[]
 

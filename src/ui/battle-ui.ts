@@ -1,13 +1,16 @@
 import type { BattleState } from '../combat/battle'
+import type { SkillSystemState } from '../combat/skills'
 import { getSkillDefinition } from '../combat/skills'
-import { BATTLEFIELD_TILES, SP_MAX, WATT_MAX } from '../core/types'
+import { SP_MAX, WATT_MAX } from '../core/types'
+import { createPixiApp, RENDER_W, RENDER_H } from '../renderer/pixi-app'
+import { createLayers } from '../renderer/layers'
 import {
-  clearCanvas,
-  configureCanvas,
-  drawBar,
-  drawShape,
-  drawText,
-} from '../utils/render'
+  createBattleRenderer,
+  updateBattleRenderer,
+  destroyBattleRenderer,
+  type BattleRendererState,
+} from '../renderer/battle-renderer'
+import type { Application } from 'pixi.js'
 
 export interface BattleUiCallbacks {
   onSkillActivate(skillIndex: number): void
@@ -16,12 +19,11 @@ export interface BattleUiCallbacks {
 }
 
 export interface BattleUiHandle {
-  update(state: BattleState): void
+  update(state: BattleState, realDelta?: number): void
+  showCallout(text: string, speaker: string): void
   destroy(): void
 }
 
-const CANVAS_W = 960
-const CANVAS_H = 400
 const TIME_LIMIT_SECONDS = 300
 
 function formatTime(seconds: number): string {
@@ -29,23 +31,6 @@ function formatTime(seconds: number): string {
   const m = Math.floor(s / 60)
   const r = s % 60
   return `${m}:${r.toString().padStart(2, '0')}`
-}
-
-function shapeForMoveType(moveType: string) {
-  switch (moveType) {
-    case 'reverse-joint':
-      return 'triangle'
-    case 'humanoid':
-      return 'rect'
-    case 'flying':
-      return 'diamond'
-    case 'tank':
-      return 'wide-rect'
-    case 'quadruped':
-      return 'hex'
-    default:
-      return 'rect'
-  }
 }
 
 function countAliveUnits(state: BattleState, side: 'player' | 'enemy'): number {
@@ -56,10 +41,13 @@ function countAliveUnits(state: BattleState, side: 'player' | 'enemy'): number {
   return count
 }
 
-export function createBattleUi(
+export async function createBattleUi(
   container: HTMLElement,
   callbacks: BattleUiCallbacks,
-): BattleUiHandle {
+  timeLimitSeconds?: number,
+): Promise<BattleUiHandle> {
+  const timeLimit = timeLimitSeconds ?? TIME_LIMIT_SECONDS
+
   const screen = document.createElement('div')
   screen.className = 'screen'
 
@@ -74,7 +62,7 @@ export function createBattleUi(
   topLeft.className = 'meta'
   const timePill = document.createElement('span')
   timePill.className = 'pill mono'
-  timePill.textContent = `남은 시간 ${formatTime(TIME_LIMIT_SECONDS)}`
+  timePill.textContent = `남은 시간 ${formatTime(timeLimit)}`
   const capPill = document.createElement('span')
   capPill.className = 'pill mono'
   capPill.textContent = '유닛 0/15'
@@ -88,13 +76,28 @@ export function createBattleUi(
   const layout = document.createElement('div')
   layout.className = 'battle-layout'
 
+  const calloutBubble = document.createElement('div')
+  calloutBubble.className = 'callout-bubble'
+  calloutBubble.style.display = 'none'
+  const calloutSpeaker = document.createElement('div')
+  calloutSpeaker.className = 'callout-speaker mono'
+  const calloutText = document.createElement('div')
+  calloutText.className = 'callout-text'
+  calloutBubble.appendChild(calloutSpeaker)
+  calloutBubble.appendChild(calloutText)
+  layout.appendChild(calloutBubble)
+
+  let calloutTimer: ReturnType<typeof setTimeout> | null = null
+
+  // PixiJS container replaces the old Canvas element
   const fieldPanel = document.createElement('div')
   fieldPanel.className = 'panel battle-canvas-wrap'
-  const canvas = document.createElement('canvas')
-  canvas.className = 'battle-canvas'
-  canvas.setAttribute('width', String(CANVAS_W))
-  canvas.setAttribute('height', String(CANVAS_H))
-  fieldPanel.appendChild(canvas)
+  const pixiHost = document.createElement('div')
+  pixiHost.style.width = `${RENDER_W}px`
+  pixiHost.style.height = `${RENDER_H}px`
+  pixiHost.style.maxWidth = '100%'
+  pixiHost.style.overflow = 'hidden'
+  fieldPanel.appendChild(pixiHost)
 
   const hudPanel = document.createElement('div')
   hudPanel.className = 'panel'
@@ -122,6 +125,7 @@ export function createBattleUi(
 
   const resourceBars = document.createElement('div')
   resourceBars.className = 'grid'
+  resourceBars.setAttribute('data-tutorial', 'resource-bars')
   resourceBars.innerHTML = `
     <div class="bar">
       <div class="bar-label"><span>와트</span><span class="mono" data-role="watt-text">—</span></div>
@@ -139,6 +143,7 @@ export function createBattleUi(
   skillBox.innerHTML = `<div class="muted">스킬</div>`
   const skillButtons = document.createElement('div')
   skillButtons.className = 'skill-buttons'
+  skillButtons.setAttribute('data-tutorial', 'skill-buttons')
   skillBox.appendChild(skillButtons)
   hudBody.appendChild(skillBox)
 
@@ -173,10 +178,11 @@ export function createBattleUi(
   speedBox.innerHTML = `<div class="muted">속도</div>`
   const speedControls = document.createElement('div')
   speedControls.className = 'speed-controls'
+  speedControls.setAttribute('data-tutorial', 'speed-controls')
 
   let activeSpeed = 1
 
-  const speedButtons: Array<{ readonly speed: number; readonly el: HTMLButtonElement }> = []
+  const speedBtns: Array<{ readonly speed: number; readonly el: HTMLButtonElement }> = []
   for (const s of [1, 2, 4]) {
     const btn = document.createElement('button')
     btn.type = 'button'
@@ -187,7 +193,7 @@ export function createBattleUi(
       syncSpeedButtons()
       callbacks.onSpeedChange(s)
     })
-    speedButtons.push({ speed: s, el: btn })
+    speedBtns.push({ speed: s, el: btn })
     speedControls.appendChild(btn)
   }
 
@@ -206,9 +212,19 @@ export function createBattleUi(
   screen.appendChild(layout)
   container.replaceChildren(screen)
 
-  const { ctx } = configureCanvas(canvas, CANVAS_W, CANVAS_H)
+  // Initialize PixiJS
+  let pixiApp: Application | null = null
+  let renderer: BattleRendererState | null = null
 
-  // Cache HUD element refs — avoid querySelector per frame
+  try {
+    pixiApp = await createPixiApp(pixiHost)
+    const layers = createLayers(pixiApp)
+    renderer = createBattleRenderer(pixiApp, layers)
+  } catch {
+    // PixiJS failed — leave pixiHost empty, rendering will be a no-op
+  }
+
+  // Cache HUD element refs
   function requireEl<T extends Element>(sel: string): T {
     const el = hudBody.querySelector<T>(sel)
     if (!el) throw new Error(`Missing HUD element: ${sel}`)
@@ -224,7 +240,7 @@ export function createBattleUi(
   const spText = requireEl<HTMLElement>('[data-role="sp-text"]')
 
   function syncSpeedButtons(): void {
-    for (const b of speedButtons) {
+    for (const b of speedBtns) {
       const selected = b.speed === activeSpeed
       b.el.classList.toggle('btn-primary', selected)
       b.el.setAttribute('aria-pressed', selected ? 'true' : 'false')
@@ -233,79 +249,8 @@ export function createBattleUi(
 
   syncSpeedButtons()
 
-  function drawBattlefield(state: BattleState): void {
-    clearCanvas(ctx, CANVAS_W, CANVAS_H, '#0b0f15')
-
-    const padX = 56
-    const usableW = CANVAS_W - padX * 2
-    const tileW = usableW / BATTLEFIELD_TILES
-
-    ctx.save()
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'
-    ctx.lineWidth = 1
-    for (let t = 0; t <= BATTLEFIELD_TILES; t++) {
-      const x = padX + t * tileW
-      ctx.beginPath()
-      ctx.moveTo(x, 56)
-      ctx.lineTo(x, CANVAS_H - 56)
-      ctx.stroke()
-    }
-    ctx.restore()
-
-    const playerBasePct = state.battlefield.playerBase.hp / state.battlefield.playerBase.maxHp
-    const enemyBasePct = state.battlefield.enemyBase.hp / state.battlefield.enemyBase.maxHp
-
-    drawBar(ctx, 14, 16, 260, 10, playerBasePct, {
-      track: 'rgba(255,255,255,0.08)',
-      fill: 'rgba(79,195,247,0.95)',
-      border: 'rgba(0,0,0,0.5)',
-    })
-    drawBar(ctx, CANVAS_W - 274, 16, 260, 10, enemyBasePct, {
-      track: 'rgba(255,255,255,0.08)',
-      fill: 'rgba(239,83,80,0.95)',
-      border: 'rgba(0,0,0,0.5)',
-    })
-
-    drawText(ctx, `BASE ${Math.ceil(state.battlefield.playerBase.hp)}`, 14, 34, {
-      color: 'rgba(230,230,230,0.9)',
-      font: '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace',
-    })
-    drawText(ctx, `BASE ${Math.ceil(state.battlefield.enemyBase.hp)}`, CANVAS_W - 14, 34, {
-      color: 'rgba(230,230,230,0.9)',
-      font: '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace',
-      align: 'right',
-    })
-
-    const laneSpacing = 44
-    const enemyLaneStart = 100
-    const playerLaneStart = 260
-
-    for (const u of state.units) {
-      if (u.state === 'dead') continue
-
-      const x = padX + (u.position - 0.5) * tileW
-      const laneY = u.side === 'enemy'
-        ? enemyLaneStart + u.buildIndex * laneSpacing
-        : playerLaneStart + u.buildIndex * laneSpacing
-      const jitter = ((u.id % 5) - 2) * 2
-      const y = laneY + jitter
-
-      const fill = u.side === 'player' ? 'rgba(79,195,247,0.9)' : 'rgba(239,83,80,0.9)'
-      const stroke = u.side === 'player' ? 'rgba(160,230,255,0.9)' : 'rgba(255,170,170,0.9)'
-      const kind = shapeForMoveType(u.moveType)
-      drawShape(ctx, kind, x, y, 10, { fill, stroke })
-
-      const hpPct = u.hp / u.maxHp
-      drawBar(ctx, x - 16, y - 20, 32, 5, hpPct, {
-        track: 'rgba(255,255,255,0.1)',
-        fill: u.side === 'player' ? 'rgba(79,195,247,0.95)' : 'rgba(239,83,80,0.95)',
-        border: 'rgba(0,0,0,0.45)',
-      })
-    }
-  }
-
-  function updateHud(state: BattleState): void {
-    const remaining = TIME_LIMIT_SECONDS - state.elapsedSeconds
+  function updateHud(state: BattleState, skills: SkillSystemState): void {
+    const remaining = timeLimit - state.elapsedSeconds
     timePill.textContent = `남은 시간 ${formatTime(remaining)}`
 
     const playerAlive = countAliveUnits(state, 'player')
@@ -323,16 +268,16 @@ export function createBattleUi(
     wattBar.value = state.playerWatt.current
     wattText.textContent = `${Math.floor(state.playerWatt.current)}/${WATT_MAX}`
 
-    spBar.value = state.skillSystem.sp.current
-    spText.textContent = `${Math.floor(state.skillSystem.sp.current)}/${SP_MAX}`
+    spBar.value = skills.sp.current
+    spText.textContent = `${Math.floor(skills.sp.current)}/${SP_MAX}`
 
     for (let i = 0; i < 3; i++) {
-      const cd = state.skillSystem.cooldowns[i]
-      const name = state.skillSystem.deck[i]
+      const cd = skills.cooldowns[i]
+      const name = skills.deck[i]
       if (!cd || !name) continue
 
       const def = getSkillDefinition(name)
-      const canAfford = state.skillSystem.sp.current >= def.spCost
+      const canAfford = skills.sp.current >= def.spCost
       const ready = cd.remainingCooldown <= 0 && canAfford
 
       skillTitleEls[i]!.textContent = name
@@ -346,11 +291,36 @@ export function createBattleUi(
   }
 
   return {
-    update(state: BattleState): void {
-      updateHud(state)
-      drawBattlefield(state)
+    update(state: BattleState, realDelta?: number): void {
+      updateHud(state, state.skillSystem)
+
+      if (renderer && realDelta != null && realDelta > 0) {
+        updateBattleRenderer(renderer, state, realDelta)
+      }
+    },
+    showCallout(text: string, speaker: string): void {
+      if (calloutTimer !== null) clearTimeout(calloutTimer)
+
+      calloutSpeaker.textContent = speaker
+      calloutText.textContent = text
+      calloutBubble.style.display = ''
+      calloutBubble.classList.remove('callout-fade-out')
+      calloutBubble.classList.add('callout-fade-in')
+
+      calloutTimer = setTimeout(() => {
+        calloutBubble.classList.remove('callout-fade-in')
+        calloutBubble.classList.add('callout-fade-out')
+        calloutTimer = setTimeout(() => {
+          calloutBubble.style.display = 'none'
+          calloutBubble.classList.remove('callout-fade-out')
+          calloutTimer = null
+        }, 300)
+      }, 2500)
     },
     destroy(): void {
+      if (calloutTimer !== null) clearTimeout(calloutTimer)
+      if (renderer) destroyBattleRenderer(renderer)
+      if (pixiApp) pixiApp.destroy(true, { children: true })
       screen.remove()
     },
   }

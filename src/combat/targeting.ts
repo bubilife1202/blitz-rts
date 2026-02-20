@@ -43,6 +43,10 @@ function findByWeaponSpecial(
       return findMostClustered(inRange, special.splashRange)
     case 'hammer-true-damage':
       return findHighestHp(inRange)
+    case 'laser-pierce':
+    case 'shotgun-close':
+    case 'railgun-charge':
+      return findClosest(attacker, inRange)
   }
 }
 

@@ -41,6 +41,20 @@ const PART_PRICES: Record<PartId, number> = {
   ACP03: 0,
   ACP04: 100,
   ACP05: 150,
+
+  MP06: 150,
+  MP07: 200,
+  MP08: 250,
+
+  BP06: 100,
+  BP07: 180,
+
+  AP06: 200,
+  AP07: 120,
+  AP08: 280,
+
+  ACP06: 100,
+  ACP07: 200,
 }
 
 export function createStartingInventory(): Inventory {

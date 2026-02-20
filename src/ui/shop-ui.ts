@@ -1,7 +1,8 @@
-import type { PartId } from '../core/types'
+import type { PartId, PartSlot } from '../core/types'
 import { ACCESSORY_PARTS, BODY_PARTS, LEGS_PARTS, WEAPON_PARTS } from '../data/parts-data'
 import type { Inventory } from '../assembly/inventory'
 import { getPartPrice, ownsPart } from '../assembly/inventory'
+import { renderPartSvg } from './mech-renderer'
 
 export interface ShopUiCallbacks {
   onBuy(partId: PartId): void
@@ -76,27 +77,6 @@ function keyStatText(part: { readonly slot: string } & Record<string, unknown>):
     default:
       return '—'
   }
-}
-
-function previewShapeClass(part: { readonly slot: string } & Record<string, unknown>): string {
-  if (part.slot === 'legs') {
-    const moveType = String(part['moveType'] ?? '')
-    if (moveType === 'reverse-joint') return 'shape-legs'
-    if (moveType === 'tank') return 'shape-legs'
-    if (moveType === 'quadruped') return 'shape-legs'
-    return 'shape-legs'
-  }
-  if (part.slot === 'body') return 'shape-body'
-  if (part.slot === 'weapon') {
-    const name = String(part['name'] ?? '')
-    if (name.toLowerCase().includes('missile')) return 'shape-weapon missile'
-    if (name.toLowerCase().includes('hammer')) return 'shape-weapon melee'
-    return 'shape-weapon'
-  }
-  const eff = part['effect'] as { readonly kind?: string } | undefined
-  if (eff?.kind === 'defense-flat') return 'shape-accessory hex'
-  if (eff?.kind === 'hp-flat') return 'shape-accessory circle'
-  return 'shape-accessory antenna'
 }
 
 export function createShopUi(
@@ -208,12 +188,7 @@ export function createShopUi(
 
       const preview = document.createElement('div')
       preview.className = 'part-preview'
-      preview.innerHTML = `
-        <div class="shape ${previewShapeClass(part as unknown as { readonly slot: string } & Record<string, unknown>)}" style="transform: scale(0.22); transform-origin: center;">
-          <div class="shape-core"></div>
-          <div class="shape-detail"></div>
-        </div>
-      `
+      preview.innerHTML = renderPartSvg(part.slot as PartSlot, part.id, 38)
 
       const main = document.createElement('div')
       const head = document.createElement('div')

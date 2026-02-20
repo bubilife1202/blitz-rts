@@ -21,6 +21,7 @@ import {
   WEAPON_PARTS,
 } from '../data/parts-data'
 import { SKILLS } from '../data/skills-data'
+import { renderMechSvg, renderPartSvg } from './mech-renderer'
 
 export interface AssemblyResult {
   roster: Roster
@@ -93,33 +94,6 @@ function loadFillClass(pct: number): 'green' | 'gold' | 'red' {
   return 'green'
 }
 
-function bodyWeightClass(weight: number): 'light' | 'medium' | 'heavy' {
-  if (weight >= 200) return 'heavy'
-  if (weight >= 120) return 'medium'
-  return 'light'
-}
-
-function weaponShapeClass(id: WeaponId): 'ranged' | 'melee' | 'missile' {
-  if (id === 'AP04') return 'missile'
-  if (id === 'AP05') return 'melee'
-  return 'ranged'
-}
-
-function accessoryShapeClass(id: AccessoryId | null): 'circle' | 'hex' | 'antenna' {
-  if (!id) return 'antenna'
-  if (id === 'ACP02') return 'hex'
-  if (id === 'ACP04') return 'circle'
-  return 'antenna'
-}
-
-function legsShapeClass(moveType: string): string {
-  if (moveType === 'reverse-joint') return 'reverse-joint'
-  if (moveType === 'tank') return 'tank'
-  if (moveType === 'quadruped') return 'quadruped'
-  if (moveType === 'flying') return 'flying'
-  return 'humanoid'
-}
-
 function findLegs(id: LegsId) {
   return LEGS_PARTS.find((p) => p.id === id)
 }
@@ -152,6 +126,7 @@ export function createAssemblyUi(
 
   let selectedSkills: SkillName[] = []
   let ratios: [number, number, number] = [3, 1, 1]
+  let mechPreviewEl: HTMLDivElement | null = null
 
   const screen = document.createElement('div')
   screen.className = 'screen'
@@ -165,6 +140,7 @@ export function createAssemblyUi(
 
   const buildTabs = document.createElement('div')
   buildTabs.className = 'tabs'
+  buildTabs.setAttribute('data-tutorial', 'build-tabs')
 
   const tabButtons: HTMLButtonElement[] = []
   for (let i = 0; i < 3; i++) {
@@ -204,6 +180,7 @@ export function createAssemblyUi(
 
   const partsPanel = document.createElement('div')
   partsPanel.className = 'panel'
+  partsPanel.setAttribute('data-tutorial', 'parts-panel')
   partsPanel.innerHTML = `
     <div class="panel-header">
       <h2 class="panel-title">파츠</h2>
@@ -257,6 +234,7 @@ export function createAssemblyUi(
 
   const statsPanel = document.createElement('div')
   statsPanel.className = 'panel'
+  statsPanel.setAttribute('data-tutorial', 'stats-panel')
   statsPanel.innerHTML = `
     <div class="panel-header">
       <h2 class="panel-title">스탯</h2>
@@ -315,6 +293,7 @@ export function createAssemblyUi(
   skillsPanel.innerHTML = `<div class="muted">스킬 선택 (3개)</div>`
   const skillGrid = document.createElement('div')
   skillGrid.className = 'skill-grid'
+  skillGrid.setAttribute('data-tutorial', 'skill-grid')
   skillsPanel.appendChild(skillGrid)
 
   const ratiosPanel = document.createElement('div')
@@ -331,6 +310,7 @@ export function createAssemblyUi(
   const launchBtn = document.createElement('button')
   launchBtn.type = 'button'
   launchBtn.className = 'btn btn-primary btn-xl'
+  launchBtn.setAttribute('data-tutorial', 'launch-button')
   launchBtn.textContent = '출격'
   launchRow.appendChild(launchHint)
   launchRow.appendChild(launchBtn)
@@ -439,6 +419,7 @@ export function createAssemblyUi(
             onHover: (active) => {
               hoverCandidate = active ? { category: 'legs', partId: p.id } : null
               renderStats()
+              updateMechPreview()
             },
           }),
         )
@@ -461,6 +442,7 @@ export function createAssemblyUi(
             onHover: (active) => {
               hoverCandidate = active ? { category: 'body', partId: p.id } : null
               renderStats()
+              updateMechPreview()
             },
           }),
         )
@@ -483,6 +465,7 @@ export function createAssemblyUi(
             onHover: (active) => {
               hoverCandidate = active ? { category: 'weapon', partId: p.id } : null
               renderStats()
+              updateMechPreview()
             },
           }),
         )
@@ -500,6 +483,7 @@ export function createAssemblyUi(
         onHover: (active) => {
           hoverCandidate = active ? { category: 'accessory', partId: null } : null
           renderStats()
+          updateMechPreview()
         },
       }),
     )
@@ -517,19 +501,20 @@ export function createAssemblyUi(
           onHover: (active) => {
             hoverCandidate = active ? { category: 'accessory', partId: p.id } : null
             renderStats()
+            updateMechPreview()
           },
         }),
       )
     }
   }
 
-  function slotButton(category: PartCategory, label: string, partName: string, shapeHtml: string): HTMLButtonElement {
+  function slotButton(category: PartCategory, label: string, partName: string, partSvgHtml: string): HTMLButtonElement {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'mech-slot'
     btn.setAttribute('aria-current', category === activeCategory ? 'true' : 'false')
     btn.innerHTML = `
-      ${shapeHtml}
+      <div class="mech-slot-svg">${partSvgHtml}</div>
       <div style="position:absolute; left:10px; top:10px; right:10px; display:flex; justify-content:space-between; gap:10px; align-items:baseline; pointer-events:none;">
         <span class="mono" style="opacity:0.8; font-size:11px">${label}</span>
         <span class="mono" style="opacity:0.9; font-size:11px">${partName}</span>
@@ -545,53 +530,27 @@ export function createAssemblyUi(
 
   function renderBlueprint(): void {
     const build = roster[activeIndex]
+    const candidateBuild = buildWithCandidate(build, hoverCandidate)
 
     const legs = findLegs(build.legsId)
     const body = findBody(build.bodyId)
     const weapon = findWeapon(build.weaponId)
     const accessory = build.accessoryId ? findAccessory(build.accessoryId) : null
 
-    const legsCls = legs ? legsShapeClass(legs.moveType) : 'humanoid'
-    const bodyCls = body ? bodyWeightClass(body.weight) : 'light'
-    const wepCls = weaponShapeClass(build.weaponId)
-    const accCls = accessoryShapeClass(build.accessoryId)
-
-    const legsShape = `
-      <div class="shape shape-legs ${legsCls}">
-        <div class="shape-core"></div>
-        <div class="shape-detail"></div>
-        <div class="legs-glyph"></div>
-      </div>
-    `
-
-    const bodyShape = `
-      <div class="shape shape-body ${bodyCls}">
-        <div class="shape-core"></div>
-        <div class="shape-detail"></div>
-      </div>
-    `
-
-    const weaponShape = `
-      <div class="shape shape-weapon ${wepCls}">
-        <div class="shape-core"></div>
-        <div class="shape-detail"></div>
-      </div>
-    `
-
-    const accessoryShape = `
-      <div class="shape shape-accessory ${accCls}">
-        <div class="shape-core"></div>
-        <div class="shape-detail"></div>
-      </div>
-    `
+    const legsSvg = renderPartSvg('legs', build.legsId, 48)
+    const bodySvg = renderPartSvg('body', build.bodyId, 48)
+    const weaponSvg = renderPartSvg('weapon', build.weaponId, 48)
+    const accessorySvg = build.accessoryId
+      ? renderPartSvg('accessory', build.accessoryId, 48)
+      : ''
 
     const mech = document.createElement('div')
     mech.className = 'mech'
 
-    const accBtn = slotButton('accessory', '보조', accessory?.name ?? '없음', accessoryShape)
-    const bodyBtn = slotButton('body', '몸체', body?.name ?? '—', bodyShape)
-    const weaponBtn = slotButton('weapon', '무기', weapon?.name ?? '—', weaponShape)
-    const legsBtn = slotButton('legs', '다리', legs?.name ?? '—', legsShape)
+    const accBtn = slotButton('accessory', '보조', accessory?.name ?? '없음', accessorySvg)
+    const bodyBtn = slotButton('body', '몸체', body?.name ?? '—', bodySvg)
+    const weaponBtn = slotButton('weapon', '무기', weapon?.name ?? '—', weaponSvg)
+    const legsBtn = slotButton('legs', '다리', legs?.name ?? '—', legsSvg)
 
     const conn1 = document.createElement('div')
     conn1.className = 'mech-connector bottom'
@@ -607,7 +566,19 @@ export function createAssemblyUi(
     mech.appendChild(bodyBtn)
     mech.appendChild(weaponBtn)
     mech.appendChild(legsBtn)
-    bpStageEl.replaceChildren(mech)
+
+    const preview = document.createElement('div')
+    preview.className = 'bp-mech-preview'
+    preview.innerHTML = renderMechSvg(candidateBuild, 110)
+    mechPreviewEl = preview
+    bpStageEl.replaceChildren(preview, mech)
+  }
+
+  function updateMechPreview(): void {
+    if (!mechPreviewEl) return
+    const build = roster[activeIndex]
+    const candidateBuild = buildWithCandidate(build, hoverCandidate)
+    mechPreviewEl.innerHTML = renderMechSvg(candidateBuild, 110)
   }
 
   function renderStats(): void {

@@ -37,4 +37,40 @@ export const SKILLS = [
     cooldownSeconds: 25,
     effect: { kind: 'scramble-targeting', durationSeconds: 8 },
   },
+  {
+    name: 'Artillery Barrage',
+    spCost: 45,
+    cooldownSeconds: 50,
+    effect: { kind: 'area-damage', damage: 200, tileRadius: 5 },
+  },
+  {
+    name: 'Fortify',
+    spCost: 25,
+    cooldownSeconds: 35,
+    effect: { kind: 'defense-buff', defenseBonus: 10, durationSeconds: 8 },
+  },
+  {
+    name: 'Overdrive Protocol',
+    spCost: 35,
+    cooldownSeconds: 45,
+    effect: { kind: 'fire-rate-buff', multiplier: 1.5, durationSeconds: 6 },
+  },
+  {
+    name: 'Decoy Deployment',
+    spCost: 20,
+    cooldownSeconds: 30,
+    effect: { kind: 'spawn-decoys', count: 3, hp: 300, durationSeconds: 10 },
+  },
+  {
+    name: 'Emergency Recall',
+    spCost: 40,
+    cooldownSeconds: 60,
+    effect: { kind: 'recall-heal', stunSeconds: 2 },
+  },
+  {
+    name: 'Watt Surge',
+    spCost: 30,
+    cooldownSeconds: 40,
+    effect: { kind: 'watt-instant', amount: 150 },
+  },
 ] as const satisfies readonly SkillDefinition[]

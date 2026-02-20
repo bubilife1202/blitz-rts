@@ -1271,6 +1271,342 @@ select {
   flex-wrap: wrap;
 }
 
+.bp-mech-preview {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 12px rgba(79, 195, 247, 0.18));
+  transition: opacity 180ms var(--ease-out);
+}
+
+.mech-slot-svg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.mech-slot:hover .mech-slot-svg {
+  opacity: 1;
+}
+
+.mech-slot[aria-current='true'] .mech-slot-svg {
+  opacity: 1;
+}
+
+.mech-slot-svg svg {
+  max-width: 60%;
+  max-height: 60%;
+}
+
+.result-mech-preview {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+  filter: drop-shadow(0 0 8px rgba(79, 195, 247, 0.22));
+}
+
+.result-defeat .result-mech-preview {
+  filter: drop-shadow(0 0 8px rgba(239, 83, 80, 0.22));
+}
+
+.enemy-mech-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.enemy-mech-thumb {
+  opacity: 0.7;
+  transition: opacity 140ms var(--ease-out);
+}
+
+.enemy-item:hover .enemy-mech-thumb {
+  opacity: 1;
+}
+
+.part-preview svg {
+  display: block;
+}
+
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(5, 8, 14, 0.74);
+  backdrop-filter: blur(1px);
+}
+
+.tutorial-fade-in {
+  animation: tutorial-fade-in 180ms var(--ease-out) both;
+}
+
+.tutorial-fade-out {
+  animation: tutorial-fade-out 180ms var(--ease-out) both;
+}
+
+@keyframes tutorial-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tutorial-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.tutorial-tooltip {
+  position: fixed;
+  width: min(360px, calc(100vw - 24px));
+  border-radius: var(--r-md);
+  border: 1px solid rgba(79, 195, 247, 0.35);
+  background:
+    linear-gradient(180deg, rgba(79, 195, 247, 0.12), transparent 50%),
+    rgba(26, 26, 46, 0.96);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6);
+  padding: 14px;
+  z-index: 10002;
+}
+
+.tutorial-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(184, 234, 255, 0.96);
+}
+
+.tutorial-body {
+  margin: 10px 0 0;
+  color: rgba(232, 240, 248, 0.92);
+  white-space: pre-line;
+}
+
+.tutorial-rich-text p {
+  margin: 0 0 8px;
+}
+
+.tutorial-flow {
+  margin-top: 12px;
+  font-size: 12px;
+  color: rgba(184, 234, 255, 0.8);
+}
+
+.tutorial-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tutorial-arrow {
+  position: fixed;
+  width: 14px;
+  height: 14px;
+  z-index: 10001;
+  border-top: 1px solid rgba(79, 195, 247, 0.35);
+  border-left: 1px solid rgba(79, 195, 247, 0.35);
+  background: rgba(26, 26, 46, 0.96);
+}
+
+.tutorial-highlight {
+  position: relative;
+  z-index: 10003;
+  box-shadow:
+    0 0 0 2px rgba(79, 195, 247, 0.92),
+    0 0 28px rgba(79, 195, 247, 0.42);
+  border-radius: 10px;
+  transition: box-shadow 160ms var(--ease-out);
+}
+
+.tutorial-modal {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ── Callout bubble ── */
+
+.callout-bubble {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 10px;
+  grid-column: 1 / -1;
+  padding: 12px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(79, 195, 247, 0.22);
+  background:
+    linear-gradient(180deg, rgba(79, 195, 247, 0.08), transparent 55%),
+    rgba(13, 17, 23, 0.88);
+  color: var(--text);
+}
+
+.callout-speaker {
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(184, 234, 255, 0.92);
+  margin-bottom: 4px;
+}
+
+.callout-text {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.callout-fade-in {
+  animation: callout-in 250ms var(--ease-out) both;
+}
+
+.callout-fade-out {
+  animation: callout-out 300ms var(--ease-out) both;
+}
+
+@keyframes callout-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes callout-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ── Dialogue overlay ── */
+
+.dialogue-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(5, 8, 14, 0.82);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  animation: tutorial-fade-in 250ms var(--ease-out) both;
+}
+
+.dialogue-box {
+  width: min(720px, calc(100vw - 32px));
+  margin-bottom: 32px;
+  cursor: default;
+}
+
+.dialogue-speaker {
+  position: relative;
+  z-index: 1;
+  padding: 12px 16px 0;
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(184, 234, 255, 0.96);
+}
+
+.dialogue-text {
+  position: relative;
+  z-index: 1;
+  padding: 10px 16px 6px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+  min-height: 52px;
+}
+
+.dialogue-hint {
+  position: relative;
+  z-index: 1;
+  padding: 0 16px 12px;
+  font-size: 11px;
+  text-align: right;
+  opacity: 0.55;
+}
+
+/* ── Mission select ── */
+
+.mission-list {
+  display: grid;
+  gap: 10px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.mission-card {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.mission-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mission-number {
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: rgba(184, 234, 255, 0.82);
+}
+
+.mission-check {
+  color: var(--success);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.mission-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: rgba(232, 240, 248, 0.96);
+}
+
+.mission-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.mission-locked {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.mission-locked:hover {
+  transform: none;
+  border-color: rgba(79, 195, 247, 0.18);
+  box-shadow: none;
+}
+
 @media (max-width: 980px) {
   .app-root {
     padding: 14px;

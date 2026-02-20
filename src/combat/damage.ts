@@ -34,7 +34,10 @@ export function calculateDps(input: DamageInput): number {
     }
     case 'none':
     case 'sniper-farthest':
-    case 'missile-splash': {
+    case 'missile-splash':
+    case 'laser-pierce':
+    case 'shotgun-close':
+    case 'railgun-charge': {
       const effectiveDefense = input.targetDefense
       return input.attack * (input.attack / (input.attack + effectiveDefense)) * input.fireRate
     }

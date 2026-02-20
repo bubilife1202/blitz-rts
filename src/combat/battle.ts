@@ -4,7 +4,7 @@ import type {
   RosterIndex,
   SkillDeck,
 } from '../core/types'
-import { UNIT_CAP_PER_SIDE } from '../core/types'
+import { UNIT_CAP_PER_SIDE, WATT_MAX } from '../core/types'
 import { calculateBuildDerived } from '../assembly/parts'
 import type { BattlefieldState, Side } from './battlefield'
 import {
@@ -31,6 +31,8 @@ import {
   addActiveEffect,
   canUseSkill,
   createSkillSystem,
+  getDefenseBuffBonus,
+  getFireRateMultiplier,
   getFocusFireTarget,
   getSkillDefinition,
   getWattRegenMultiplier,
@@ -46,6 +48,8 @@ import type { WattState } from './watt'
 import { createWattState, regenWatt, spendWatt } from './watt'
 import type { RngState } from '../utils/rng'
 import { createRng, nextFloat } from '../utils/rng'
+
+let nextDecoyId = -1
 
 export type BattleOutcome = 'player_win' | 'enemy_win' | 'draw'
 
@@ -258,7 +262,11 @@ function applyAttackToUnit(
   ) {
     return
   }
-  const damage = calculatePerHitDamage(attacker, target.defense, target.maxHp)
+  const defenseBonus =
+    target.side === 'player'
+      ? getDefenseBuffBonus(state.skillSystem)
+      : 0
+  const damage = calculatePerHitDamage(attacker, target.defense + defenseBonus, target.maxHp)
   const attackerStats = getBuildStats(state, attacker.side, attacker.buildIndex)
   const targetStats = getBuildStats(state, target.side, target.buildIndex)
 
@@ -305,6 +313,13 @@ function processUnitCombat(state: InternalState, unit: BattleUnit): void {
     return
   }
 
+  if (
+    unit.side === 'player' &&
+    hasActiveEffect(state.skillSystem, 'recall-stun')
+  ) {
+    return
+  }
+
   unit.attackCooldown = Math.max(0, unit.attackCooldown - state.dt)
 
   const enemySide = getEnemySide(unit.side)
@@ -346,7 +361,11 @@ function processUnitCombat(state: InternalState, unit: BattleUnit): void {
         applyAttackToUnit(state, unit, target)
       }
 
-      unit.attackCooldown = 1 / unit.fireRate
+      const fireRate =
+        unit.side === 'player'
+          ? unit.fireRate * getFireRateMultiplier(state.skillSystem)
+          : unit.fireRate
+      unit.attackCooldown = 1 / fireRate
     }
     return
   }
@@ -358,7 +377,11 @@ function processUnitCombat(state: InternalState, unit: BattleUnit): void {
 
     if (unit.attackCooldown <= 0) {
       applyAttackToBase(state, unit)
-      unit.attackCooldown = 1 / unit.fireRate
+      const fireRate =
+        unit.side === 'player'
+          ? unit.fireRate * getFireRateMultiplier(state.skillSystem)
+          : unit.fireRate
+      unit.attackCooldown = 1 / fireRate
     }
     return
   }
@@ -501,6 +524,98 @@ function doActivateSkill(
       addActiveEffect(state.skillSystem, ae)
       break
     }
+    case 'area-damage': {
+      const enemies = getAliveUnits(state.units, 'enemy')
+      if (enemies.length === 0) return false
+      // Find the most clustered enemies: pick center as average position, sort by distance to center
+      let sumPos = 0
+      for (const e of enemies) sumPos += e.position
+      const centerPos = sumPos / enemies.length
+      const sorted = [...enemies].sort(
+        (a, b) =>
+          Math.abs(a.position - centerPos) - Math.abs(b.position - centerPos),
+      )
+      const targets = sorted.slice(0, 5)
+      for (const t of targets) {
+        const targetStats = getBuildStats(state, t.side, t.buildIndex)
+        targetStats.damageTaken += effect.damage
+        applyDamage(t, effect.damage)
+        if (!isAlive(t)) {
+          targetStats.deaths++
+        }
+      }
+      break
+    }
+    case 'defense-buff': {
+      const ae: ActiveEffect = {
+        kind: 'defense-buff',
+        remainingDuration: effect.durationSeconds,
+        defenseBonus: effect.defenseBonus,
+      }
+      addActiveEffect(state.skillSystem, ae)
+      break
+    }
+    case 'fire-rate-buff': {
+      const ae: ActiveEffect = {
+        kind: 'fire-rate-buff',
+        remainingDuration: effect.durationSeconds,
+        multiplier: effect.multiplier,
+      }
+      addActiveEffect(state.skillSystem, ae)
+      break
+    }
+    case 'spawn-decoys': {
+      const positions = [5, 8, 11]
+      for (let i = 0; i < effect.count; i++) {
+        const decoy: BattleUnit = {
+          id: nextDecoyId--,
+          side: 'player',
+          buildIndex: 0 as RosterIndex,
+          position: positions[i]!,
+          hp: effect.hp,
+          maxHp: effect.hp,
+          speed: 0,
+          tilesPerSecond: 0,
+          defense: 0,
+          attack: 0,
+          range: 0,
+          fireRate: 0,
+          moveType: 'humanoid',
+          mountType: 'arm',
+          weaponSpecial: { kind: 'none' },
+          wattCost: 0,
+          state: 'moving',
+          attackCooldown: 0,
+          currentTargetId: null,
+        }
+        state.units.push(decoy)
+      }
+      const ae: ActiveEffect = {
+        kind: 'spawn-decoys',
+        remainingDuration: effect.durationSeconds,
+      }
+      addActiveEffect(state.skillSystem, ae)
+      break
+    }
+    case 'recall-heal': {
+      const allies = getAliveUnits(state.units, 'player')
+      for (const ally of allies) {
+        ally.position = 1
+        ally.hp = ally.maxHp
+      }
+      const ae: ActiveEffect = {
+        kind: 'recall-stun',
+        remainingDuration: effect.stunSeconds,
+      }
+      addActiveEffect(state.skillSystem, ae)
+      break
+    }
+    case 'watt-instant': {
+      state.playerWatt = {
+        current: Math.min(WATT_MAX, state.playerWatt.current + effect.amount),
+      }
+      break
+    }
   }
 
   return true
@@ -534,6 +649,7 @@ function tickInternal(state: InternalState): void {
 
 export function createBattle(config: BattleConfig): BattleEngine {
   resetUnitIdCounter()
+  nextDecoyId = -1
 
   const state: InternalState = {
     elapsed: 0,
