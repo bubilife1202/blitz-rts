@@ -39,8 +39,18 @@ export interface MissionDefinition {
   readonly postDialogueLose: readonly DialogueLine[]
 }
 
+export type DialogueEmotion =
+  | 'neutral'
+  | 'happy'
+  | 'angry'
+  | 'worried'
+  | 'excited'
+  | 'confident'
+  | 'calm'
+  | 'sad'
+
 export interface DialogueLine {
   readonly speaker: string
-  readonly emotion: 'neutral' | 'happy' | 'angry' | 'worried' | 'excited'
+  readonly emotion: DialogueEmotion
   readonly text: string
 }

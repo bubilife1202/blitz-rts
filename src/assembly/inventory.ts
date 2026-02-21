@@ -93,3 +93,14 @@ export function addGold(inventory: Inventory, amount: number): Inventory {
     gold: inventory.gold + amount,
   }
 }
+
+export function addParts(inventory: Inventory, parts: readonly PartId[]): Inventory {
+  const nextOwned = new Set(inventory.ownedParts)
+  for (const partId of parts) {
+    nextOwned.add(partId)
+  }
+  return {
+    ownedParts: nextOwned,
+    gold: inventory.gold,
+  }
+}

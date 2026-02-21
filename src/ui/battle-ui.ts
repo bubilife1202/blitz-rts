@@ -1,7 +1,7 @@
 import type { BattleState } from '../combat/battle'
 import type { SkillSystemState } from '../combat/skills'
 import { getSkillDefinition } from '../combat/skills'
-import { SP_MAX, WATT_MAX } from '../core/types'
+import { BATTLEFIELD_TILES, SP_MAX, WATT_MAX } from '../core/types'
 import { createPixiApp, RENDER_W, RENDER_H } from '../renderer/pixi-app'
 import { createLayers } from '../renderer/layers'
 import {
@@ -12,7 +12,14 @@ import {
   type BattleRendererState,
 } from '../renderer/battle-renderer'
 import type { Application } from 'pixi.js'
-import { playSfx } from './audio'
+import { playSfx, playWeaponSfx } from './audio'
+import type { BattleOutcome } from '../combat/battle'
+import {
+  createVictoryCinematic,
+  createDefeatCinematic,
+  createDrawCinematic,
+  type BattleEndCinematic,
+} from '../renderer/fx/battle-end-cinematic'
 
 export interface BattleUiCallbacks {
   onSkillActivate(skillIndex: number): void
@@ -23,6 +30,8 @@ export interface BattleUiCallbacks {
 export interface BattleUiHandle {
   update(state: BattleState, realDelta?: number): void
   showCallout(text: string, speaker: string): void
+  /** Start the end-of-battle cinematic. Calls onDone when it finishes. */
+  startEndCinematic(outcome: BattleOutcome, onDone: () => void): void
   destroy(): void
 }
 
@@ -59,6 +68,85 @@ function countAliveUnits(state: BattleState, side: 'player' | 'enemy'): number {
   return count
 }
 
+function countTotalProduced(state: BattleState, side: 'player' | 'enemy'): number {
+  const stats = side === 'player' ? state.playerBuildStats : state.enemyBuildStats
+  let total = 0
+  for (const s of stats) total += s.unitsProduced
+  return total
+}
+
+function countTotalKills(state: BattleState, side: 'player' | 'enemy'): number {
+  const stats = side === 'player' ? state.playerBuildStats : state.enemyBuildStats
+  let total = 0
+  for (const s of stats) total += s.kills
+  return total
+}
+
+// ── Minimap constants ──
+const MINIMAP_W = 120
+const MINIMAP_H = 80
+const MINIMAP_UPDATE_INTERVAL_MS = 500
+const MINIMAP_TOTAL_TILES = BATTLEFIELD_TILES + 2 // 0..31 including bases
+
+function drawMinimap(
+  ctx: CanvasRenderingContext2D,
+  state: BattleState,
+): void {
+  ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H)
+
+  // Background
+  ctx.fillStyle = 'rgba(5, 8, 12, 0.6)'
+  ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H)
+
+  // Center line
+  ctx.strokeStyle = 'rgba(79, 195, 247, 0.15)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(MINIMAP_W / 2, 0)
+  ctx.lineTo(MINIMAP_W / 2, MINIMAP_H)
+  ctx.stroke()
+
+  // Helper to map tile position to minimap x
+  const tileToX = (tile: number): number =>
+    (tile / MINIMAP_TOTAL_TILES) * MINIMAP_W
+
+  // Draw bases as squares
+  const baseSize = 6
+
+  // Player base (position 0) - cyan
+  const pBaseX = tileToX(0)
+  ctx.fillStyle = 'rgba(79, 195, 247, 0.85)'
+  ctx.fillRect(pBaseX, MINIMAP_H / 2 - baseSize / 2, baseSize, baseSize)
+
+  // Enemy base (position 31) - red
+  const eBaseX = tileToX(MINIMAP_TOTAL_TILES) - baseSize
+  ctx.fillStyle = 'rgba(239, 83, 80, 0.85)'
+  ctx.fillRect(eBaseX, MINIMAP_H / 2 - baseSize / 2, baseSize, baseSize)
+
+  // Draw units as dots
+  const dotRadius = 2
+  for (const unit of state.units) {
+    if (unit.state === 'dead') continue
+
+    const x = tileToX(unit.position)
+    // Spread units vertically: player units in top half, enemy in bottom half
+    const yBase = unit.side === 'player' ? MINIMAP_H * 0.3 : MINIMAP_H * 0.7
+    // Add slight per-unit offset based on id to avoid overlap
+    const yOff = ((unit.id * 7) % 20) - 10
+    const y = Math.max(dotRadius, Math.min(MINIMAP_H - dotRadius, yBase + yOff))
+
+    ctx.fillStyle = unit.side === 'player'
+      ? 'rgba(79, 195, 247, 0.9)'
+      : 'rgba(239, 83, 80, 0.9)'
+    ctx.beginPath()
+    ctx.arc(x, y, dotRadius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+// ── DPS tracking ──
+const DPS_UPDATE_INTERVAL_MS = 2000
+
 export async function createBattleUi(
   container: HTMLElement,
   callbacks: BattleUiCallbacks,
@@ -81,11 +169,27 @@ export async function createBattleUi(
   const timePill = document.createElement('span')
   timePill.className = 'pill mono'
   timePill.textContent = `남은 시간 ${formatTime(timeLimit)}`
+  const elapsedPill = document.createElement('span')
+  elapsedPill.className = 'pill mono timer-elapsed'
+  elapsedPill.textContent = '경과 0:00'
   const capPill = document.createElement('span')
   capPill.className = 'pill mono'
   capPill.textContent = '유닛 0/15'
+  const killPill = document.createElement('span')
+  killPill.className = 'pill kill-counter'
+  killPill.innerHTML = '\u{1F480} <span class="mono" data-role="kill-count">0</span>'
+  const killCountEl = killPill.querySelector<HTMLElement>('[data-role="kill-count"]')!
+
+  const dpsPill = document.createElement('span')
+  dpsPill.className = 'dps-meter'
+  dpsPill.innerHTML = 'DPS <span class="dps-meter-value" data-role="dps-value">0</span>'
+  const dpsValueEl = dpsPill.querySelector<HTMLElement>('[data-role="dps-value"]')!
+
   topLeft.appendChild(timePill)
+  topLeft.appendChild(elapsedPill)
   topLeft.appendChild(capPill)
+  topLeft.appendChild(killPill)
+  topLeft.appendChild(dpsPill)
 
   topbar.appendChild(topLeft)
   screen.appendChild(title)
@@ -151,10 +255,12 @@ export async function createBattleUi(
     <div class="bar">
       <div class="bar-label"><span>아군 기지</span><span class="mono" data-role="p-base-text">—</span></div>
       <progress class="progress" data-role="p-base" max="1" value="1"></progress>
+      <div class="unit-count" data-role="p-unit-count">유닛: 0/0</div>
     </div>
     <div class="bar">
       <div class="bar-label"><span>적 기지</span><span class="mono" data-role="e-base-text">—</span></div>
       <progress class="progress progress-danger" data-role="e-base" max="1" value="1"></progress>
+      <div class="unit-count" data-role="e-unit-count">유닛: 0/0</div>
     </div>
   `
   hudBody.appendChild(baseBars)
@@ -195,6 +301,7 @@ export async function createBattleUi(
     btn.type = 'button'
     btn.className = 'skill-btn'
     btn.innerHTML = `
+      <span class="hotkey-hint">${i + 1}</span>
       <div class="skill-btn-title" data-role="title">—</div>
       <div class="skill-btn-sub" data-role="sub">—</div>
       <progress class="progress progress-danger" data-role="cd" max="1" value="0"></progress>
@@ -222,12 +329,15 @@ export async function createBattleUi(
 
   let activeSpeed = 1
 
+  const speedHotkeys = ['Z', 'X', 'C']
   const speedBtns: Array<{ readonly speed: number; readonly el: HTMLButtonElement }> = []
+  let speedIdx = 0
   for (const s of [1, 2, 4]) {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'btn'
-    btn.textContent = `${s}x`
+    const hintKey = speedHotkeys[speedIdx]!
+    btn.innerHTML = `${s}x <span class="hotkey-hint">${hintKey}</span>`
     btn.addEventListener('click', () => {
       activeSpeed = s
       syncSpeedButtons()
@@ -235,6 +345,7 @@ export async function createBattleUi(
     })
     speedBtns.push({ speed: s, el: btn })
     speedControls.appendChild(btn)
+    speedIdx++
   }
 
   const pauseBtn = document.createElement('button')
@@ -255,6 +366,23 @@ export async function createBattleUi(
   combatLogBox.appendChild(combatLogList)
   hudBody.appendChild(combatLogBox)
 
+  // ── Minimap ──
+  const minimapContainer = document.createElement('div')
+  minimapContainer.className = 'minimap-container'
+  const minimapHeader = document.createElement('div')
+  minimapHeader.className = 'minimap-header'
+  minimapHeader.textContent = '전장 미니맵'
+  minimapContainer.appendChild(minimapHeader)
+
+  const minimapCanvas = document.createElement('canvas')
+  minimapCanvas.width = MINIMAP_W
+  minimapCanvas.height = MINIMAP_H
+  minimapCanvas.className = 'minimap-canvas'
+  minimapContainer.appendChild(minimapCanvas)
+  hudBody.appendChild(minimapContainer)
+
+  const minimapCtx = minimapCanvas.getContext('2d')
+
   layout.appendChild(fieldPanel)
   layout.appendChild(hudPanel)
   screen.appendChild(layout)
@@ -263,14 +391,19 @@ export async function createBattleUi(
   // Initialize PixiJS
   let pixiApp: Application | null = null
   let renderer: BattleRendererState | null = null
+  let renderLayers: ReturnType<typeof createLayers> | null = null
 
   try {
     pixiApp = await createPixiApp(pixiHost)
-    const layers = createLayers(pixiApp)
-    renderer = createBattleRenderer(pixiApp, layers)
+    renderLayers = createLayers(pixiApp)
+    renderer = createBattleRenderer(pixiApp, renderLayers)
   } catch {
     // PixiJS failed — leave pixiHost empty, rendering will be a no-op
   }
+
+  // End-of-battle cinematic state
+  let activeCinematic: BattleEndCinematic | null = null
+  let cinematicRafId: number | null = null
 
   // Cache HUD element refs
   function requireEl<T extends Element>(sel: string): T {
@@ -286,6 +419,8 @@ export async function createBattleUi(
   const spBar = requireEl<HTMLProgressElement>('[data-role="sp"]')
   const wattText = requireEl<HTMLElement>('[data-role="watt-text"]')
   const spText = requireEl<HTMLElement>('[data-role="sp-text"]')
+  const pUnitCount = requireEl<HTMLElement>('[data-role="p-unit-count"]')
+  const eUnitCount = requireEl<HTMLElement>('[data-role="e-unit-count"]')
 
   let telemetryInitialized = false
   let prevAliveIds = new Set<number>()
@@ -295,6 +430,11 @@ export async function createBattleUi(
   let prevEnemyBaseHp = -1
   let lastFireSfxAt = 0
   let lastExplosionSfxAt = 0
+  let killCount = 0
+  let lastMinimapUpdate = 0
+  let lastDpsUpdate = 0
+  let prevTotalPlayerDamage = 0
+  let currentDps = 0
 
   function appendCombatLog(
     elapsedSeconds: number,
@@ -327,9 +467,30 @@ export async function createBattleUi(
     const remaining = timeLimit - state.elapsedSeconds
     timePill.textContent = `남은 시간 ${formatTime(remaining)}`
 
+    // Timer critical pulse when < 60s remaining
+    const isCritical = remaining <= 60 && remaining > 0
+    timePill.classList.toggle('timer-critical', isCritical)
+
+    // Elapsed time display
+    elapsedPill.textContent = `경과 ${formatTime(state.elapsedSeconds)}`
+
     const playerAlive = countAliveUnits(state, 'player')
     const enemyAlive = countAliveUnits(state, 'enemy')
     capPill.textContent = `아군 ${playerAlive} vs 적 ${enemyAlive}`
+
+    // Kill counter: count dead enemy units
+    let deadEnemies = 0
+    for (const u of state.units) {
+      if (u.side === 'enemy' && u.state === 'dead') deadEnemies++
+    }
+    if (deadEnemies !== killCount) {
+      killCount = deadEnemies
+      killCountEl.textContent = String(killCount)
+      killPill.classList.remove('kill-pop')
+      // Force reflow to restart animation
+      void killPill.offsetWidth
+      killPill.classList.add('kill-pop')
+    }
 
     pBaseBar.max = state.battlefield.playerBase.maxHp
     pBaseBar.value = state.battlefield.playerBase.hp
@@ -339,11 +500,51 @@ export async function createBattleUi(
     eBaseBar.value = state.battlefield.enemyBase.hp
     eBaseText.textContent = `${Math.ceil(state.battlefield.enemyBase.hp)}/${state.battlefield.enemyBase.maxHp}`
 
+    // Unit counts: alive/total produced with kill diff
+    const playerProduced = countTotalProduced(state, 'player')
+    const enemyProduced = countTotalProduced(state, 'enemy')
+    const playerKills = countTotalKills(state, 'player')
+    const enemyKills = countTotalKills(state, 'enemy')
+    const killDiff = playerKills - enemyKills
+
+    const killDiffClass = killDiff > 0 ? 'positive' : killDiff < 0 ? 'negative' : ''
+    const killDiffStr = killDiff > 0 ? `+${killDiff}` : killDiff < 0 ? String(killDiff) : ''
+
+    pUnitCount.innerHTML = `유닛: ${playerAlive}/${playerProduced}`
+      + (killDiffStr ? ` <span class="unit-count-diff ${killDiffClass}">${killDiffStr}</span>` : '')
+    eUnitCount.textContent = `유닛: ${enemyAlive}/${enemyProduced}`
+
     wattBar.value = state.playerWatt.current
     wattText.textContent = `${Math.floor(state.playerWatt.current)}/${WATT_MAX}`
 
     spBar.value = skills.sp.current
     spText.textContent = `${Math.floor(skills.sp.current)}/${SP_MAX}`
+
+    // DPS meter: update every 2 seconds
+    const nowMs = performance.now()
+    if (nowMs - lastDpsUpdate >= DPS_UPDATE_INTERVAL_MS) {
+      let totalPlayerDamage = 0
+      for (const s of state.playerBuildStats) totalPlayerDamage += s.damageDealt
+      if (state.elapsedSeconds > 0) {
+        const elapsed = state.elapsedSeconds
+        // Use windowed DPS if we have a previous snapshot, else use average
+        if (prevTotalPlayerDamage > 0 && lastDpsUpdate > 0) {
+          const dtSec = (nowMs - lastDpsUpdate) / 1000
+          currentDps = dtSec > 0 ? (totalPlayerDamage - prevTotalPlayerDamage) / dtSec : 0
+        } else {
+          currentDps = totalPlayerDamage / elapsed
+        }
+      }
+      prevTotalPlayerDamage = totalPlayerDamage
+      lastDpsUpdate = nowMs
+      dpsValueEl.textContent = String(Math.round(currentDps))
+    }
+
+    // Minimap: update at throttled interval
+    if (minimapCtx && nowMs - lastMinimapUpdate >= MINIMAP_UPDATE_INTERVAL_MS) {
+      drawMinimap(minimapCtx, state)
+      lastMinimapUpdate = nowMs
+    }
 
     // Momentum bar
     const playerUnits = countAliveUnits(state, 'player')
@@ -433,8 +634,23 @@ export async function createBattleUi(
     }
 
     if (newlyAttacking > 0 && nowMs - lastFireSfxAt >= FIRE_SFX_MIN_INTERVAL_MS) {
-      playSfx('fire')
+      // Play weapon-specific SFX for the first newly attacking unit
+      let weaponPlayed = false
+      for (const id of attackingNow) {
+        if (!prevAttackingIds.has(id)) {
+          const unit = unitsById.get(id)
+          if (unit) {
+            playWeaponSfx(unit.weaponSpecial.kind)
+            weaponPlayed = true
+            break
+          }
+        }
+      }
+      if (!weaponPlayed) playSfx('fire')
       lastFireSfxAt = nowMs
+    }
+    if (enemyDeaths > 0) {
+      playSfx('kill')
     }
     if (
       (enemyDeaths > 0 || playerDeaths > 0)
@@ -485,6 +701,40 @@ export async function createBattleUi(
     prevEnemyBaseHp = enemyBaseHp
   }
 
+  // ── Keyboard shortcuts ──
+  const speedKeyMap: Record<string, number> = { z: 1, x: 2, c: 4 }
+
+  function onKeyDown(e: KeyboardEvent): void {
+    const key = e.key
+
+    // Skill activation: 1, 2, 3
+    if (key === '1' || key === '2' || key === '3') {
+      const idx = Number(key) - 1
+      const btn = skillBtnEls[idx]
+      if (btn && !btn.disabled) {
+        callbacks.onSkillActivate(idx)
+      }
+      return
+    }
+
+    // Speed controls: z → 1x, x → 2x, c → 4x
+    const speed = speedKeyMap[key.toLowerCase()]
+    if (speed != null) {
+      activeSpeed = speed
+      syncSpeedButtons()
+      callbacks.onSpeedChange(speed)
+      return
+    }
+
+    // Pause: Space
+    if (key === ' ') {
+      e.preventDefault()
+      callbacks.onPause()
+    }
+  }
+
+  document.addEventListener('keydown', onKeyDown)
+
   return {
     update(state: BattleState, realDelta?: number): void {
       updateHud(state, state.skillSystem)
@@ -522,8 +772,57 @@ export async function createBattleUi(
         }, 300)
       }, 2500)
     },
+    startEndCinematic(outcome: BattleOutcome, onDone: () => void): void {
+      if (!renderLayers) {
+        // No PixiJS available, skip cinematic
+        onDone()
+        return
+      }
+
+      // Create the appropriate cinematic
+      switch (outcome) {
+        case 'player_win':
+          activeCinematic = createVictoryCinematic(renderLayers)
+          break
+        case 'enemy_win':
+          activeCinematic = createDefeatCinematic(renderLayers)
+          break
+        case 'draw':
+          activeCinematic = createDrawCinematic(renderLayers)
+          break
+      }
+
+      let lastTs: number | null = null
+
+      const cinematicFrame = (timestamp: number): void => {
+        if (!activeCinematic) return
+
+        if (lastTs === null) lastTs = timestamp
+        const dt = Math.min((timestamp - lastTs) / 1000, 0.1)
+        lastTs = timestamp
+
+        const running = activeCinematic.update(dt)
+        if (!running) {
+          activeCinematic.destroy()
+          activeCinematic = null
+          cinematicRafId = null
+          onDone()
+          return
+        }
+
+        cinematicRafId = requestAnimationFrame(cinematicFrame)
+      }
+
+      cinematicRafId = requestAnimationFrame(cinematicFrame)
+    },
     destroy(): void {
+      document.removeEventListener('keydown', onKeyDown)
       if (calloutTimer !== null) clearTimeout(calloutTimer)
+      if (cinematicRafId !== null) cancelAnimationFrame(cinematicRafId)
+      if (activeCinematic) {
+        activeCinematic.destroy()
+        activeCinematic = null
+      }
       if (renderer) destroyBattleRenderer(renderer)
       if (pixiApp) pixiApp.destroy(true, { children: true })
       screen.remove()

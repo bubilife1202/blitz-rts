@@ -9,10 +9,22 @@ export type SfxType =
   | 'victory'
   | 'defeat'
   | 'equip'
+  | 'kill'
+  | 'hit'
 
 const MUTE_STORAGE_KEY = 'blitz-rts-muted'
-const BGM_VOLUME = 0.15
-const SFX_VOLUME = 0.3
+const AUDIO_SETTINGS_KEY = 'blitz-rts-audio-settings'
+const DEFAULT_MASTER_VOLUME = 0.8
+const DEFAULT_BGM_VOLUME = 0.6
+const DEFAULT_SFX_VOLUME = 0.8
+const BASE_BGM_GAIN = 0.15
+const BASE_SFX_GAIN = 0.3
+
+interface AudioVolumes {
+  master: number
+  bgm: number
+  sfx: number
+}
 
 let audioContext: AudioContext | null = null
 let masterGain: GainNode | null = null
@@ -21,6 +33,7 @@ let sfxGain: GainNode | null = null
 let noiseBuffer: AudioBuffer | null = null
 
 let muted = loadMutedState()
+let volumes: AudioVolumes = loadVolumeSettings()
 let desiredBgm: BgmMode = null
 let currentBgm: BgmMode = null
 let bgmSchedulerId: number | null = null
@@ -111,6 +124,12 @@ export function playSfx(type: SfxType): void {
     case 'equip':
       playEquipSfx(ctx)
       break
+    case 'kill':
+      playKillSfx(ctx)
+      break
+    case 'hit':
+      playHitSfx(ctx)
+      break
   }
 }
 
@@ -124,11 +143,197 @@ export function setMuted(nextMuted: boolean): void {
   const now = ctx.currentTime
   masterGain.gain.cancelScheduledValues(now)
   masterGain.gain.setValueAtTime(masterGain.gain.value, now)
-  masterGain.gain.linearRampToValueAtTime(muted ? 0 : 1, now + 0.05)
+  masterGain.gain.linearRampToValueAtTime(muted ? 0 : volumes.master, now + 0.05)
 }
 
 export function isMuted(): boolean {
   return muted
+}
+
+export function setMasterVolume(value: number): void {
+  volumes.master = Math.max(0, Math.min(1, value))
+  saveVolumeSettings()
+  applyVolumes()
+}
+
+export function getMasterVolume(): number {
+  return volumes.master
+}
+
+export function setBgmVolume(value: number): void {
+  volumes.bgm = Math.max(0, Math.min(1, value))
+  saveVolumeSettings()
+  applyVolumes()
+}
+
+export function getBgmVolume(): number {
+  return volumes.bgm
+}
+
+export function setSfxVolume(value: number): void {
+  volumes.sfx = Math.max(0, Math.min(1, value))
+  saveVolumeSettings()
+  applyVolumes()
+}
+
+export function getSfxVolume(): number {
+  return volumes.sfx
+}
+
+export function playWeaponSfx(weaponSpecial: string): void {
+  const ctx = audioContext
+  if (!ctx || !sfxGain || muted) return
+
+  if (ctx.state === 'suspended') {
+    void ctx.resume()
+  }
+
+  const now = ctx.currentTime
+
+  switch (weaponSpecial) {
+    case 'vulcan-armor-pierce': {
+      // Rapid high-freq burst: 3 quick tones at 1200->900Hz, 0.03s each, 0.02s apart
+      for (let i = 0; i < 3; i++) {
+        playSimpleTone(ctx, {
+          frequencyStart: 1200,
+          frequencyEnd: 900,
+          duration: 0.03,
+          volume: 0.2,
+          type: 'sine',
+          destination: sfxGain,
+        }, now + i * 0.05)
+      }
+      break
+    }
+    case 'none': {
+      // Deep boom: 200->80Hz sine 0.15s + noise burst lowpass 400
+      playSimpleTone(ctx, {
+        frequencyStart: 200,
+        frequencyEnd: 80,
+        duration: 0.15,
+        volume: 0.22,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      playNoiseBurst(ctx, {
+        destination: sfxGain,
+        startTime: now,
+        duration: 0.15,
+        volume: 0.15,
+        lowpass: 400,
+      })
+      break
+    }
+    case 'sniper-farthest': {
+      // Sharp crack: 2000->800Hz, 0.08s + short noise highpass 3000
+      playSimpleTone(ctx, {
+        frequencyStart: 2000,
+        frequencyEnd: 800,
+        duration: 0.08,
+        volume: 0.22,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      playNoiseBurst(ctx, {
+        destination: sfxGain,
+        startTime: now,
+        duration: 0.05,
+        volume: 0.15,
+        highpass: 3000,
+      })
+      break
+    }
+    case 'missile-splash': {
+      // Whoosh: 300->600Hz rising, 0.2s + noise lowpass 800
+      playSimpleTone(ctx, {
+        frequencyStart: 300,
+        frequencyEnd: 600,
+        duration: 0.2,
+        volume: 0.2,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      playNoiseBurst(ctx, {
+        destination: sfxGain,
+        startTime: now,
+        duration: 0.2,
+        volume: 0.14,
+        lowpass: 800,
+      })
+      break
+    }
+    case 'hammer-true-damage': {
+      // Heavy thud: 100->50Hz, 0.12s + noise burst lowpass 200
+      playSimpleTone(ctx, {
+        frequencyStart: 100,
+        frequencyEnd: 50,
+        duration: 0.12,
+        volume: 0.24,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      playNoiseBurst(ctx, {
+        destination: sfxGain,
+        startTime: now,
+        duration: 0.12,
+        volume: 0.16,
+        lowpass: 200,
+      })
+      break
+    }
+    case 'laser-pierce': {
+      // Sci-fi beam: 800Hz steady sine, 0.15s + 1600Hz overtone at 0.03 volume
+      playSimpleTone(ctx, {
+        frequencyStart: 800,
+        duration: 0.15,
+        volume: 0.2,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      playSimpleTone(ctx, {
+        frequencyStart: 1600,
+        duration: 0.15,
+        volume: 0.03,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      break
+    }
+    case 'shotgun-close': {
+      // Wide noise burst: noise highpass 800, 0.1s, volume 0.25
+      playNoiseBurst(ctx, {
+        destination: sfxGain,
+        startTime: now,
+        duration: 0.1,
+        volume: 0.25,
+        highpass: 800,
+      })
+      break
+    }
+    case 'railgun-charge': {
+      // Charge-release: 200->3000Hz sweep 0.2s + sharp noise crack
+      playSimpleTone(ctx, {
+        frequencyStart: 200,
+        frequencyEnd: 3000,
+        duration: 0.2,
+        volume: 0.22,
+        type: 'sine',
+        destination: sfxGain,
+      }, now)
+      playNoiseBurst(ctx, {
+        destination: sfxGain,
+        startTime: now + 0.18,
+        duration: 0.04,
+        volume: 0.2,
+        highpass: 2000,
+      })
+      break
+    }
+    default:
+      // Unknown weapon type: fall back to generic fire sound
+      playFireSfx(ctx)
+      break
+  }
 }
 
 function ensureAudioContext(): AudioContext | null {
@@ -146,7 +351,7 @@ function ensureAudioContext(): AudioContext | null {
   audioContext = ctx
 
   masterGain = ctx.createGain()
-  masterGain.gain.value = muted ? 0 : 1
+  masterGain.gain.value = muted ? 0 : volumes.master
   masterGain.connect(ctx.destination)
 
   bgmGain = ctx.createGain()
@@ -154,7 +359,7 @@ function ensureAudioContext(): AudioContext | null {
   bgmGain.connect(masterGain)
 
   sfxGain = ctx.createGain()
-  sfxGain.gain.value = SFX_VOLUME
+  sfxGain.gain.value = BASE_SFX_GAIN * volumes.sfx
   sfxGain.connect(masterGain)
 
   noiseBuffer = createNoiseBuffer(ctx)
@@ -175,7 +380,7 @@ function startMenuBgm(): void {
   const now = ctx.currentTime
   bgm.gain.cancelScheduledValues(now)
   bgm.gain.setValueAtTime(bgm.gain.value, now)
-  bgm.gain.linearRampToValueAtTime(BGM_VOLUME, now + 0.5)
+  bgm.gain.linearRampToValueAtTime(bgmTargetVolume(), now + 0.5)
 
   menuState = {
     nextChordTime: now + 0.05,
@@ -198,7 +403,7 @@ function startBattleBgm(): void {
   const now = ctx.currentTime
   bgm.gain.cancelScheduledValues(now)
   bgm.gain.setValueAtTime(bgm.gain.value, now)
-  bgm.gain.linearRampToValueAtTime(BGM_VOLUME, now + 0.35)
+  bgm.gain.linearRampToValueAtTime(bgmTargetVolume(), now + 0.35)
 
   battleState = {
     nextBeatTime: now + 0.05,
@@ -529,6 +734,37 @@ function playEquipSfx(ctx: AudioContext): void {
   }, now + 0.04)
 }
 
+function playKillSfx(ctx: AudioContext): void {
+  const now = ctx.currentTime
+  // Satisfying 2-note chime: 880Hz then 1100Hz, triangle, 0.08s each
+  playSimpleTone(ctx, {
+    frequencyStart: 880,
+    duration: 0.08,
+    volume: 0.22,
+    type: 'triangle',
+    destination: sfxGain!,
+  }, now)
+  playSimpleTone(ctx, {
+    frequencyStart: 1100,
+    duration: 0.08,
+    volume: 0.22,
+    type: 'triangle',
+    destination: sfxGain!,
+  }, now + 0.09)
+}
+
+function playHitSfx(ctx: AudioContext): void {
+  // Quick subtle impact: 600->400Hz, 0.04s, volume 0.12
+  playSimpleTone(ctx, {
+    frequencyStart: 600,
+    frequencyEnd: 400,
+    duration: 0.04,
+    volume: 0.12,
+    type: 'sine',
+    destination: sfxGain!,
+  })
+}
+
 function playSimpleTone(
   ctx: AudioContext,
   options: {
@@ -691,5 +927,59 @@ function saveMutedState(value: boolean): void {
     window.localStorage.setItem(MUTE_STORAGE_KEY, value ? '1' : '0')
   } catch {
     // Ignore storage write failures.
+  }
+}
+
+function loadVolumeSettings(): AudioVolumes {
+  if (typeof window === 'undefined') {
+    return { master: DEFAULT_MASTER_VOLUME, bgm: DEFAULT_BGM_VOLUME, sfx: DEFAULT_SFX_VOLUME }
+  }
+  try {
+    const raw = window.localStorage.getItem(AUDIO_SETTINGS_KEY)
+    if (!raw) return { master: DEFAULT_MASTER_VOLUME, bgm: DEFAULT_BGM_VOLUME, sfx: DEFAULT_SFX_VOLUME }
+    const parsed = JSON.parse(raw) as Partial<AudioVolumes>
+    return {
+      master: typeof parsed.master === 'number' ? parsed.master : DEFAULT_MASTER_VOLUME,
+      bgm: typeof parsed.bgm === 'number' ? parsed.bgm : DEFAULT_BGM_VOLUME,
+      sfx: typeof parsed.sfx === 'number' ? parsed.sfx : DEFAULT_SFX_VOLUME,
+    }
+  } catch {
+    return { master: DEFAULT_MASTER_VOLUME, bgm: DEFAULT_BGM_VOLUME, sfx: DEFAULT_SFX_VOLUME }
+  }
+}
+
+function saveVolumeSettings(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(volumes))
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function bgmTargetVolume(): number {
+  return BASE_BGM_GAIN * volumes.bgm
+}
+
+function applyVolumes(): void {
+  const ctx = audioContext
+  if (!ctx) return
+
+  if (masterGain && !muted) {
+    const now = ctx.currentTime
+    masterGain.gain.cancelScheduledValues(now)
+    masterGain.gain.setValueAtTime(masterGain.gain.value, now)
+    masterGain.gain.linearRampToValueAtTime(volumes.master, now + 0.05)
+  }
+
+  if (sfxGain) {
+    sfxGain.gain.value = BASE_SFX_GAIN * volumes.sfx
+  }
+
+  if (bgmGain && currentBgm) {
+    const now = ctx.currentTime
+    bgmGain.gain.cancelScheduledValues(now)
+    bgmGain.gain.setValueAtTime(bgmGain.gain.value, now)
+    bgmGain.gain.linearRampToValueAtTime(bgmTargetVolume(), now + 0.1)
   }
 }

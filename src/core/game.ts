@@ -3,7 +3,7 @@ import { createBattle } from '../combat/battle'
 import { ENEMY_PRESETS } from '../data/enemies-data'
 import type { PartId } from './types'
 import type { Inventory } from '../assembly/inventory'
-import { addGold, buyPart, createStartingInventory } from '../assembly/inventory'
+import { addGold, addParts, buyPart, createStartingInventory } from '../assembly/inventory'
 import type { AssemblyResult } from '../ui/assembly-ui'
 import { createAssemblyUi } from '../ui/assembly-ui'
 import { createBattleUi } from '../ui/battle-ui'
@@ -26,12 +26,19 @@ import {
   type TutorialStep,
 } from '../ui/tutorial'
 import { createMissionSelectUi } from '../ui/mission-select-ui'
+import { createSettingsUi } from '../ui/settings-ui'
+import { createBriefingUi } from '../ui/briefing-ui'
 import { createDialogueUi, type DialogueEntry } from '../ui/dialogue-ui'
 import { MISSIONS } from '../coop/mission-data'
 import { getPartnerById } from '../coop/partner-data'
 import type { CoopBattleConfig } from '../coop/coop-battle'
 import { createCoopBattle } from '../coop/coop-battle'
 import { getCurrentCallout } from '../coop/callout-queue'
+import { addBattleResult } from '../progression/commander'
+import { checkAndUnlock, type BattleEndStats } from '../progression/achievements'
+import { showAchievementToast } from '../ui/achievement-toast'
+import { claimMissionReward, type ClaimedRewardResult } from '../progression/rewards'
+import { getDailyChallenge, isDailyChallengeCompleted, completeDailyChallenge } from '../progression/daily-challenge'
 
 type ScreenHandle = { destroy(): void }
 
@@ -55,9 +62,12 @@ export function startGame(): void {
   let battlePaused = false
   let rafId: number | null = null
   let battleRunning = false
+  let settingsHandle: { destroy(): void } | null = null
 
   // Campaign state
   let campaignUnlocked = 1 // starts with mission 1 unlocked
+
+  // Daily challenge state (tracked implicitly via goDailyChallenge flow)
 
   let onboardingEnabled = !isTutorialDone()
   let menuTutorialShown = false
@@ -207,6 +217,9 @@ export function startGame(): void {
             battleTutorialShown = false
             runMenuTutorial()
           },
+          onSettings() {
+            openSettings()
+          },
           onCampaign() {
             playSfx('click')
             goMissionSelect()
@@ -215,6 +228,10 @@ export function startGame(): void {
             playSfx('click')
             goCoopAssembly()
           },
+          onDailyChallenge() {
+            playSfx('click')
+            goDailyChallenge()
+          },
         },
       ),
     )
@@ -222,6 +239,16 @@ export function startGame(): void {
     if (onboardingEnabled && !menuTutorialShown) {
       runMenuTutorial()
     }
+  }
+
+  function openSettings(): void {
+    if (settingsHandle) return
+    settingsHandle = createSettingsUi(root, {
+      onClose() {
+        settingsHandle?.destroy()
+        settingsHandle = null
+      },
+    })
   }
 
   function goShop(): void {
@@ -328,7 +355,10 @@ export function startGame(): void {
         battleRunning = false
         const result = state.result
         if (!result) throw new Error('Battle finished without result')
-        goResult(result)
+        stopBgm()
+        ui.startEndCinematic(result.outcome, () => {
+          goResult(result)
+        })
         return
       }
 
@@ -338,11 +368,24 @@ export function startGame(): void {
     rafId = requestAnimationFrame(frame)
   }
 
+  function computeBattleStars(result: BattleResult): number {
+    if (result.outcome !== 'player_win') return 0
+    const totalDeaths = result.playerBuildStats.reduce((sum, s) => sum + s.deaths, 0)
+    const totalKills = result.playerBuildStats.reduce((sum, s) => sum + s.kills, 0)
+    if (result.elapsedSeconds < 60 || totalDeaths === 0) return 3
+    if (result.elapsedSeconds < 120 || totalDeaths < totalKills) return 2
+    return 1
+  }
+
+  function computeTotalKills(result: BattleResult): number {
+    return result.playerBuildStats.reduce((sum, s) => sum + s.kills, 0)
+  }
+
   function goResult(result: BattleResult): void {
-    stopBgm()
+    // BGM already stopped before cinematic; start menu BGM after a short delay
     window.setTimeout(() => {
       playMenuBgm()
-    }, 1000)
+    }, 500)
 
     if (result.outcome === 'player_win') {
       playSfx('victory')
@@ -352,6 +395,29 @@ export function startGame(): void {
 
     const goldReward = getGoldReward(result)
     inventory = addGold(inventory, goldReward)
+
+    const stars = computeBattleStars(result)
+    const kills = computeTotalKills(result)
+    const totalDeaths = result.playerBuildStats.reduce((sum, s) => sum + s.deaths, 0)
+    const totalDamage = result.playerBuildStats.reduce((sum, s) => sum + s.damageDealt, 0)
+    const xpResult = addBattleResult(result.outcome, stars, kills)
+
+    // Check achievements
+    const achievementStats: BattleEndStats = {
+      outcome: result.outcome,
+      elapsedSeconds: result.elapsedSeconds,
+      totalKills: kills,
+      totalDeaths,
+      totalDamage,
+      baseHpPct: result.playerBaseHpPct,
+      enemyId: enemyPresetIndex !== null ? ENEMY_PRESETS[enemyPresetIndex]?.name ?? '' : '',
+    }
+    const newAchievements = checkAndUnlock(achievementStats)
+    for (const a of newAchievements) {
+      showAchievementToast(a)
+    }
+
+    const enemyName = enemyPresetIndex !== null ? ENEMY_PRESETS[enemyPresetIndex]?.name : undefined
     setScreen(
       createResultUi(root, result, {
         onPlayAgain() {
@@ -362,7 +428,183 @@ export function startGame(): void {
           playSfx('click')
           goAssembly()
         },
+      }, enemyName, xpResult),
+    )
+  }
+
+  // ─── Daily Challenge flow ────────────────────────────────
+
+  function goDailyChallenge(): void {
+    const challenge = getDailyChallenge()
+    if (isDailyChallengeCompleted()) {
+      goMenu()
+      return
+    }
+
+    enemyPresetIndex = challenge.enemyIndex
+
+    // Apply time limit constraint if present
+    const timeLimitConstraint = challenge.constraints.find(c => c.type === 'time-limit')
+    const timeLimit = timeLimitConstraint?.type === 'time-limit' ? timeLimitConstraint.seconds : 300
+
+    playMenuBgm()
+
+    setScreen(
+      createAssemblyUi(root, {
+        onLaunch(result) {
+          playSfx('click')
+          lastAssembly = result
+          goDailyBattle(timeLimit)
+        },
+      }, {
+        ownedParts: inventory.ownedParts,
       }),
+    )
+  }
+
+  async function goDailyBattle(timeLimit: number): Promise<void> {
+    if (enemyPresetIndex === null) {
+      goMenu()
+      return
+    }
+    if (!lastAssembly) {
+      goDailyChallenge()
+      return
+    }
+
+    const challenge = getDailyChallenge()
+    const speedLocked = challenge.constraints.find(c => c.type === 'speed-locked')
+
+    battleSpeed = 1
+    battlePaused = false
+
+    const config = buildBattleConfig(challenge.seed)
+    // Override time limit if challenge specifies one
+    const dailyConfig: BattleConfig = {
+      ...config,
+      timeLimitSeconds: timeLimit,
+    }
+
+    const engine = createBattle(dailyConfig)
+    playBattleBgm()
+
+    const ui = await createBattleUi(root, {
+      onSkillActivate(skillIndex) {
+        playSfx('skill')
+        engine.activateSkill(skillIndex)
+      },
+      onSpeedChange(speed) {
+        // Respect speed-locked constraint
+        if (speedLocked) {
+          battleSpeed = 1
+        } else {
+          battleSpeed = speed
+        }
+        battlePaused = false
+      },
+      onPause() {
+        battlePaused = !battlePaused
+      },
+    })
+
+    setScreen(ui)
+    battleRunning = true
+
+    const fixedDt = 1 / dailyConfig.ticksPerSecond
+    let lastTimestamp: number | null = null
+    let accumulator = 0
+
+    const frame = (timestamp: number): void => {
+      if (!battleRunning) return
+
+      if (lastTimestamp === null) lastTimestamp = timestamp
+      const realDelta = Math.min((timestamp - lastTimestamp) / 1000, 0.1)
+      lastTimestamp = timestamp
+
+      if (!battlePaused) {
+        accumulator += realDelta * battleSpeed
+        while (accumulator >= fixedDt) {
+          engine.tick()
+          accumulator -= fixedDt
+        }
+      }
+
+      const state = engine.getState()
+      ui.update(state, realDelta)
+
+      if (engine.isFinished()) {
+        battleRunning = false
+        const result = state.result
+        if (!result) throw new Error('Battle finished without result')
+        stopBgm()
+        ui.startEndCinematic(result.outcome, () => {
+          goDailyResult(result)
+        })
+        return
+      }
+
+      rafId = requestAnimationFrame(frame)
+    }
+
+    rafId = requestAnimationFrame(frame)
+  }
+
+  function goDailyResult(result: BattleResult): void {
+    window.setTimeout(() => {
+      playMenuBgm()
+    }, 500)
+
+    if (result.outcome === 'player_win') {
+      playSfx('victory')
+    } else if (result.outcome === 'enemy_win') {
+      playSfx('defeat')
+    }
+
+    const challenge = getDailyChallenge()
+    let goldReward = getGoldReward(result)
+
+    // Award bonus gold on win
+    if (result.outcome === 'player_win' && !isDailyChallengeCompleted()) {
+      goldReward += challenge.bonusGold
+      completeDailyChallenge()
+    }
+
+    inventory = addGold(inventory, goldReward)
+
+    const stars = computeBattleStars(result)
+    const kills = computeTotalKills(result)
+    const totalDeaths = result.playerBuildStats.reduce((sum, s) => sum + s.deaths, 0)
+    const totalDamage = result.playerBuildStats.reduce((sum, s) => sum + s.damageDealt, 0)
+    const xpResult = addBattleResult(result.outcome, stars, kills)
+
+    // Check achievements
+    const achievementStats: BattleEndStats = {
+      outcome: result.outcome,
+      elapsedSeconds: result.elapsedSeconds,
+      totalKills: kills,
+      totalDeaths,
+      totalDamage,
+      baseHpPct: result.playerBaseHpPct,
+      enemyId: ENEMY_PRESETS[challenge.enemyIndex]?.name ?? '',
+    }
+    const newAchievements = checkAndUnlock(achievementStats)
+    for (const a of newAchievements) {
+      showAchievementToast(a)
+    }
+
+    const enemyName = ENEMY_PRESETS[challenge.enemyIndex]?.name
+
+    setScreen(
+      createResultUi(root, result, {
+        onPlayAgain() {
+          playSfx('click')
+          goMenu()
+        },
+        onBackToAssembly() {
+          playSfx('click')
+          goMenu()
+        },
+      }, enemyName, xpResult),
     )
   }
 
@@ -375,11 +617,28 @@ export function startGame(): void {
       createMissionSelectUi(root, campaignUnlocked, {
         onSelectMission(missionIndex) {
           playSfx('click')
-          goMissionPre(missionIndex)
+          goMissionBriefing(missionIndex)
         },
         onBack() {
           playSfx('click')
           goMenu()
+        },
+      }),
+    )
+  }
+
+  function goMissionBriefing(missionIndex: number): void {
+    playMenuBgm()
+
+    setScreen(
+      createBriefingUi(root, missionIndex, {
+        onStartMission() {
+          playSfx('click')
+          goMissionPre(missionIndex)
+        },
+        onBack() {
+          playSfx('click')
+          goMissionSelect()
         },
       }),
     )
@@ -531,7 +790,10 @@ export function startGame(): void {
         battleRunning = false
         const result = coopState.result
         if (!result) throw new Error('Battle finished without result')
-        goMissionResult(missionIndex, result)
+        stopBgm()
+        ui.startEndCinematic(result.outcome, () => {
+          goMissionResult(missionIndex, result)
+        })
         return
       }
 
@@ -542,16 +804,22 @@ export function startGame(): void {
   }
 
   function goMissionResult(missionIndex: number, result: BattleResult): void {
-    stopBgm()
 
     const mission = MISSIONS[missionIndex]!
     const won = result.outcome === 'player_win'
 
+    // Claim mission reward (only on win, only once)
+    let rewardResult: ClaimedRewardResult | null = null
     if (won) {
       playSfx('victory')
       // Unlock next mission
       if (missionIndex + 1 >= campaignUnlocked) {
         campaignUnlocked = Math.min(MISSIONS.length, missionIndex + 2)
+      }
+      rewardResult = claimMissionReward(missionIndex, inventory.ownedParts)
+      if (rewardResult) {
+        inventory = addGold(inventory, rewardResult.reward.gold)
+        inventory = addParts(inventory, rewardResult.reward.parts)
       }
     } else {
       playSfx('defeat')
@@ -559,6 +827,10 @@ export function startGame(): void {
 
     const goldReward = getGoldReward(result)
     inventory = addGold(inventory, goldReward)
+
+    const stars = computeBattleStars(result)
+    const kills = computeTotalKills(result)
+    const xpResult = addBattleResult(result.outcome, stars, kills)
 
     // Post-battle dialogue
     const postDialogue = won ? mission.postDialogueWin : mission.postDialogueLose
@@ -570,15 +842,15 @@ export function startGame(): void {
       }))
 
       const handle = createDialogueUi(root, dialogues, () => {
-        showMissionResultScreen(missionIndex, result)
+        showMissionResultScreen(missionIndex, result, xpResult, rewardResult)
       })
       setScreen(handle)
     } else {
-      showMissionResultScreen(missionIndex, result)
+      showMissionResultScreen(missionIndex, result, xpResult, rewardResult)
     }
   }
 
-  function showMissionResultScreen(missionIndex: number, result: BattleResult): void {
+  function showMissionResultScreen(missionIndex: number, result: BattleResult, xpResult?: { xpGained: number; leveledUp: boolean; newLevel: number }, rewardResult?: ClaimedRewardResult | null): void {
     window.setTimeout(() => {
       playMenuBgm()
     }, 500)
@@ -593,7 +865,7 @@ export function startGame(): void {
           playSfx('click')
           goMissionSelect()
         },
-      }),
+      }, `mission-${missionIndex}`, xpResult, rewardResult ?? undefined),
     )
   }
 
@@ -716,7 +988,10 @@ export function startGame(): void {
         battleRunning = false
         const result = coopState.result
         if (!result) throw new Error('Battle finished without result')
-        goResult(result)
+        stopBgm()
+        ui.startEndCinematic(result.outcome, () => {
+          goResult(result)
+        })
         return
       }
 

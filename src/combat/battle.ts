@@ -64,6 +64,7 @@ export interface BuildBattleStats {
 export interface BattleResult {
   readonly outcome: BattleOutcome
   readonly elapsedSeconds: number
+  readonly playerBaseHpPct: number
   readonly playerBuildStats: readonly [
     BuildBattleStats,
     BuildBattleStats,
@@ -407,6 +408,7 @@ function checkWinCondition(state: InternalState): void {
     state.result = {
       outcome,
       elapsedSeconds: state.elapsed,
+      playerBaseHpPct: Math.max(0, playerBase.hp / playerBase.maxHp),
       playerBuildStats: state.playerBuildStats,
       enemyBuildStats: state.enemyBuildStats,
     }
@@ -417,6 +419,7 @@ function checkWinCondition(state: InternalState): void {
     state.result = {
       outcome: 'player_win',
       elapsedSeconds: state.elapsed,
+      playerBaseHpPct: Math.max(0, playerBase.hp / playerBase.maxHp),
       playerBuildStats: state.playerBuildStats,
       enemyBuildStats: state.enemyBuildStats,
     }
@@ -427,6 +430,7 @@ function checkWinCondition(state: InternalState): void {
     state.result = {
       outcome: 'enemy_win',
       elapsedSeconds: state.elapsed,
+      playerBaseHpPct: 0,
       playerBuildStats: state.playerBuildStats,
       enemyBuildStats: state.enemyBuildStats,
     }
@@ -443,6 +447,7 @@ function checkWinCondition(state: InternalState): void {
     state.result = {
       outcome,
       elapsedSeconds: state.elapsed,
+      playerBaseHpPct: playerHpPct,
       playerBuildStats: state.playerBuildStats,
       enemyBuildStats: state.enemyBuildStats,
     }

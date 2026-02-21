@@ -8,6 +8,13 @@ import { createBackground, updateBackground, type BackgroundState } from './back
 import { createParticlePool, updateParticles, type ParticlePool } from './particles/particle-pool'
 import { explosion, muzzleFlash, baseHit, impactForWeapon } from './particles/effects'
 import {
+  createAtmosphere,
+  updateAtmosphere,
+  triggerEnergySparks,
+  destroyAtmosphere,
+  type AtmosphereState,
+} from './particles/atmosphere'
+import {
   createDamageNumberPool,
   showDamageNumber,
   updateDamageNumbers,
@@ -53,6 +60,14 @@ import {
 } from './fx/milestone-effects'
 import type { SkillName } from '../core/types'
 
+// Hitstop constants
+const HEAVY_WEAPON_KINDS = new Set([
+  'railgun-charge',
+  'sniper-farthest',
+  'hammer-true-damage',
+  'missile-splash',
+])
+
 // Layout constants
 const PAD_X = 56
 const USABLE_W = RENDER_W - PAD_X * 2
@@ -90,6 +105,7 @@ export interface BattleRendererState {
   projectiles: ProjectilePool
   damageNumbers: DamageNumberPool
   skillEffects: SkillEffectState
+  atmosphere: AtmosphereState
   milestones: MilestoneState
   postProcess: PostProcessState
   playerBase: BaseSpriteState
@@ -101,6 +117,7 @@ export interface BattleRendererState {
   previewGfx: import('pixi.js').Graphics
   prev: PrevSnapshot
   time: number
+  hitstopTimer: number
 }
 
 export function createBattleRenderer(
@@ -110,6 +127,15 @@ export function createBattleRenderer(
   // Background
   const background = createBackground()
   layers.background.addChild(background.container)
+
+  // Atmosphere (between background and units)
+  const atmosphere = createAtmosphere(
+    PAD_X - 20,
+    PLAYER_BASE_Y,
+    RENDER_W - PAD_X + 20,
+    ENEMY_BASE_Y,
+  )
+  layers.ground.addChild(atmosphere.container)
 
   // Particles
   const particles = createParticlePool()
@@ -145,6 +171,7 @@ export function createBattleRenderer(
     layers,
     camera: createCamera(),
     background,
+    atmosphere,
     particles,
     projectiles,
     damageNumbers,
@@ -168,6 +195,7 @@ export function createBattleRenderer(
       unitHp: new Map(),
     },
     time: 0,
+    hitstopTimer: 0,
   }
 }
 
@@ -315,6 +343,15 @@ export function updateBattleRenderer(
   dt: number,
 ): void {
   renderer.time += dt
+
+  // Hitstop: freeze visual updates but keep camera + post-processing alive
+  if (renderer.hitstopTimer > 0) {
+    renderer.hitstopTimer -= dt
+    updateCamera(renderer.camera, renderer.app.stage)
+    updatePostProcess(renderer.postProcess, renderer.app.stage, dt)
+    return
+  }
+
   const { prev } = renderer
 
   // Track current alive units
@@ -353,6 +390,9 @@ export function updateBattleRenderer(
         if (mechSprite && lastWeapon) {
           setDeathWeapon(mechSprite, weaponKindStringToAnimKind(lastWeapon))
         }
+
+        // Hitstop on death
+        renderer.hitstopTimer = 0.05
       }
     }
   }
@@ -395,6 +435,11 @@ export function updateBattleRenderer(
 
           // Track last attacker weapon on target
           renderer.lastAttackerWeapon.set(target.id, unit.weaponSpecial.kind)
+
+          // Hitstop on heavy weapon hit
+          if (HEAVY_WEAPON_KINDS.has(unit.weaponSpecial.kind)) {
+            renderer.hitstopTimer = Math.max(renderer.hitstopTimer, 0.03)
+          }
         }
       }
     }
@@ -473,6 +518,9 @@ export function updateBattleRenderer(
     const y = unitLaneY(unit) - 22
     const color = unit.side === 'enemy' ? 0x8ef0ff : 0xff7a7a
     showDamageNumber(renderer.damageNumbers, x, y, damage, color)
+
+    // Atmospheric energy sparks at damage location
+    triggerEnergySparks(renderer.atmosphere, unitScreenX(unit.position), unitLaneY(unit))
   }
 
   // Update mech sprites
@@ -536,6 +584,7 @@ export function updateBattleRenderer(
   )
 
   // Update subsystems
+  updateAtmosphere(renderer.atmosphere, dt, renderer.time)
   updateProjectiles(renderer.projectiles, dt)
   updateParticles(renderer.particles, dt)
   updateDamageNumbers(renderer.damageNumbers, dt)
@@ -637,6 +686,7 @@ export function destroyBattleRenderer(renderer: BattleRendererState): void {
   renderer.mechSprites.clear()
 
   renderer.background.container.destroy({ children: true })
+  destroyAtmosphere(renderer.atmosphere)
   renderer.particles.container.destroy({ children: true })
   renderer.projectiles.container.destroy({ children: true })
   renderer.damageNumbers.container.destroy({ children: true })

@@ -9,10 +9,12 @@ import type {
   SkillDeck,
   SkillName,
   SynergyBonusKind,
+  SynergyDefinition,
   WeaponId,
 } from '../core/types'
 import { calculateBuildDerived, validateBuild } from '../assembly/parts'
 import { findSynergies } from '../assembly/synergy'
+import { SYNERGIES } from '../data/synergy-data'
 import { calculateDps } from '../combat/damage'
 import {
   ACCESSORY_PARTS,
@@ -23,6 +25,14 @@ import {
 import { SKILLS } from '../data/skills-data'
 import { playSfx } from './audio'
 import { renderMechSvg, renderPartSvg } from './mech-renderer'
+import {
+  getBuildNames,
+  saveBuildNames,
+  getTeamColor,
+  saveTeamColor,
+  TEAM_COLOR_PRESETS,
+} from './customization'
+import { showPartTooltip, hidePartTooltip, destroyPartTooltip } from './part-tooltip'
 
 export interface AssemblyResult {
   roster: Roster
@@ -86,6 +96,66 @@ function bonusTextKo(bonus: SynergyBonusKind): string {
   }
 }
 
+function findNewSynergiesForPart(
+  build: Build,
+  category: PartCategory,
+  partId: PartId | null,
+): readonly SynergyDefinition[] {
+  let candidateBuild: Build
+  switch (category) {
+    case 'legs':
+      if (!partId) return []
+      candidateBuild = { ...build, legsId: partId as LegsId }
+      break
+    case 'body':
+      if (!partId) return []
+      candidateBuild = { ...build, bodyId: partId as BodyId }
+      break
+    case 'weapon':
+      if (!partId) return []
+      candidateBuild = { ...build, weaponId: partId as WeaponId }
+      break
+    case 'accessory':
+      candidateBuild = { ...build, accessoryId: partId as AccessoryId | null }
+      break
+  }
+
+  const currentSyns = findSynergies(build)
+  const candidateSyns = findSynergies(candidateBuild)
+  const currentIds = new Set(currentSyns.map((s) => s.id))
+  return candidateSyns.filter((s) => !currentIds.has(s.id))
+}
+
+function conditionPartsTextKo(syn: SynergyDefinition): string {
+  const parts: string[] = []
+  const c = syn.condition
+  if (c.legsMove) {
+    const moveLabels: Record<string, string> = {
+      'reverse-joint': '스카웃(역관절)',
+      humanoid: '워커(인간형)',
+      flying: '호버(비행)',
+      tank: '탱크(무한궤도)',
+      quadruped: '스파이더(사족)',
+      wheeled: '스트라이더(차륜)',
+      hexapod: '골리앗(육족)',
+    }
+    parts.push(moveLabels[c.legsMove] ?? c.legsMove)
+  }
+  if (c.bodyId) {
+    const body = findBody(c.bodyId)
+    parts.push(body?.name ?? c.bodyId)
+  }
+  if (c.weaponId) {
+    const weapon = findWeapon(c.weaponId)
+    parts.push(weapon?.name ?? c.weaponId)
+  }
+  if (c.accessoryId) {
+    const accessory = findAccessory(c.accessoryId)
+    parts.push(accessory?.name ?? c.accessoryId)
+  }
+  return parts.join(' + ')
+}
+
 function deltaChipHtml(delta: number, unit = ''): string {
   if (!Number.isFinite(delta) || delta === 0) return ''
   const sign = delta > 0 ? '+' : ''
@@ -139,6 +209,10 @@ export function createAssemblyUi(
   let selectedSkills: SkillName[] = []
   let ratios: [number, number, number] = [3, 1, 1]
   let mechPreviewEl: HTMLDivElement | null = null
+  let synergyGuideOpen = false
+
+  let buildNames = getBuildNames()
+  let teamColor = getTeamColor()
 
   const screen = document.createElement('div')
   screen.className = 'screen'
@@ -150,16 +224,43 @@ export function createAssemblyUi(
   const topbar = document.createElement('div')
   topbar.className = 'topbar'
 
+  const buildTabsWrap = document.createElement('div')
+  buildTabsWrap.style.display = 'grid'
+  buildTabsWrap.style.gap = '6px'
+
   const buildTabs = document.createElement('div')
   buildTabs.className = 'tabs'
   buildTabs.setAttribute('data-tutorial', 'build-tabs')
 
   const tabButtons: HTMLButtonElement[] = []
+  const nameInputs: HTMLInputElement[] = []
   for (let i = 0; i < 3; i++) {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'tab'
-    btn.textContent = BUILD_LABELS[i]
+    btn.style.display = 'inline-flex'
+    btn.style.alignItems = 'center'
+    btn.style.gap = '6px'
+
+    const label = document.createElement('span')
+    label.textContent = BUILD_LABELS[i]
+
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'build-name-input'
+    input.maxLength = 8
+    input.value = buildNames[i]
+    input.placeholder = BUILD_LABELS[i]
+    input.addEventListener('input', () => {
+      buildNames[i] = input.value
+      saveBuildNames(buildNames)
+    })
+    input.addEventListener('click', (e) => {
+      e.stopPropagation()
+    })
+
+    btn.appendChild(label)
+    btn.appendChild(input)
     btn.setAttribute('aria-selected', i === activeIndex ? 'true' : 'false')
     btn.addEventListener('click', () => {
       activeIndex = i as RosterIndex
@@ -173,8 +274,45 @@ export function createAssemblyUi(
       }
     })
     tabButtons.push(btn)
+    nameInputs.push(input)
     buildTabs.appendChild(btn)
   }
+
+  // ── Team Color Picker ──
+  const colorRow = document.createElement('div')
+  colorRow.className = 'color-picker-row'
+  const colorLabel = document.createElement('span')
+  colorLabel.className = 'muted'
+  colorLabel.style.fontSize = '11px'
+  colorLabel.style.marginRight = '4px'
+  colorLabel.textContent = '팀 컬러'
+  colorRow.appendChild(colorLabel)
+
+  const colorSwatches: HTMLButtonElement[] = []
+  for (const preset of TEAM_COLOR_PRESETS) {
+    const swatch = document.createElement('button')
+    swatch.type = 'button'
+    swatch.className = 'color-swatch'
+    if (teamColor.toUpperCase() === preset.hex.toUpperCase()) {
+      swatch.classList.add('color-swatch--selected')
+    }
+    swatch.style.background = preset.hex
+    swatch.title = preset.label
+    swatch.addEventListener('click', () => {
+      teamColor = preset.hex
+      saveTeamColor(teamColor)
+      applyTeamColor()
+      for (const sw of colorSwatches) {
+        sw.classList.remove('color-swatch--selected')
+      }
+      swatch.classList.add('color-swatch--selected')
+    })
+    colorSwatches.push(swatch)
+    colorRow.appendChild(swatch)
+  }
+
+  buildTabsWrap.appendChild(buildTabs)
+  buildTabsWrap.appendChild(colorRow)
 
   const rightMeta = document.createElement('div')
   rightMeta.className = 'meta'
@@ -183,7 +321,7 @@ export function createAssemblyUi(
   modePill.textContent = 'MECH BLUEPRINT WORKSHOP'
   rightMeta.appendChild(modePill)
 
-  topbar.appendChild(buildTabs)
+  topbar.appendChild(buildTabsWrap)
   topbar.appendChild(rightMeta)
 
   const layout = document.createElement('div')
@@ -421,6 +559,9 @@ export function createAssemblyUi(
       readonly selected: boolean
       readonly disabled: boolean
       readonly locked: boolean
+      readonly synergyHints: readonly SynergyDefinition[]
+      readonly partId: PartId | null
+      readonly category: PartCategory
       readonly onPick: () => void
       readonly onHover: (active: boolean) => void
     }): HTMLButtonElement => {
@@ -430,12 +571,22 @@ export function createAssemblyUi(
       if (params.selected) btn.classList.add('card-selected')
       if (params.disabled) btn.classList.add('card-disabled')
       if (params.locked) btn.classList.add('card-locked')
+      if (params.synergyHints.length > 0 && !params.disabled) btn.classList.add('synergy-hint')
       btn.disabled = params.disabled
+
+      const synergyBadgeHtml =
+        params.synergyHints.length > 0 && !params.disabled
+          ? params.synergyHints
+              .map((s) => `<span class="synergy-hint-badge">\u26A1 ${s.nameKo}</span>`)
+              .join('')
+          : ''
+
       btn.innerHTML = `
         <div class="card-title">
           ${params.title}
           ${params.selected ? '<span class="equipped-mark">[E]</span>' : ''}
           ${params.locked ? '<span class="part-lock">잠김</span>' : ''}
+          ${synergyBadgeHtml}
         </div>
         <div class="card-sub mono">${params.sub}</div>
       `
@@ -443,10 +594,17 @@ export function createAssemblyUi(
         if (params.disabled) return
         params.onPick()
         hoverCandidate = null
+        hidePartTooltip()
         renderAll()
       })
-      btn.addEventListener('mouseenter', () => params.onHover(true))
-      btn.addEventListener('mouseleave', () => params.onHover(false))
+      btn.addEventListener('mouseenter', () => {
+        params.onHover(true)
+        showPartTooltip(btn, params.partId, params.category, roster[activeIndex], ownedParts)
+      })
+      btn.addEventListener('mouseleave', () => {
+        params.onHover(false)
+        hidePartTooltip()
+      })
       return btn
     }
 
@@ -457,6 +615,7 @@ export function createAssemblyUi(
         const sub = locked
           ? `잠김 · 이동:${p.moveType}  속도:${p.speed}  적재:${p.loadCapacity}`
           : `이동:${p.moveType}  속도:${p.speed}  적재:${p.loadCapacity}`
+        const synergyHints = locked ? [] : findNewSynergiesForPart(build, 'legs', p.id)
         partsList.appendChild(
           makePartButton({
             title: p.name,
@@ -464,6 +623,9 @@ export function createAssemblyUi(
             selected,
             disabled: locked,
             locked,
+            synergyHints,
+            partId: p.id,
+            category: 'legs',
             onPick: () => setBuild((prev) => ({ ...prev, legsId: p.id })),
             onHover: (active) => {
               hoverCandidate = active ? { category: 'legs', partId: p.id } : null
@@ -484,6 +646,7 @@ export function createAssemblyUi(
         const sub = locked
           ? `잠김 · 장착:${p.mountType}  HP:${p.hp}  DEF:${p.defense}  WT:${p.weight}`
           : `장착:${p.mountType}  HP:${p.hp}  DEF:${p.defense}  WT:${p.weight}`
+        const synergyHints = disabled ? [] : findNewSynergiesForPart(build, 'body', p.id)
         partsList.appendChild(
           makePartButton({
             title: p.name,
@@ -491,6 +654,9 @@ export function createAssemblyUi(
             selected,
             disabled,
             locked,
+            synergyHints,
+            partId: p.id,
+            category: 'body',
             onPick: () => setBuild((prev) => ({ ...prev, bodyId: p.id })),
             onHover: (active) => {
               hoverCandidate = active ? { category: 'body', partId: p.id } : null
@@ -511,6 +677,7 @@ export function createAssemblyUi(
         const sub = locked
           ? `잠김 · 장착:${p.mountType}  ATK:${p.attack}  R:${p.range}  FR:${p.fireRate}  WT:${p.weight}`
           : `장착:${p.mountType}  ATK:${p.attack}  R:${p.range}  FR:${p.fireRate}  WT:${p.weight}`
+        const synergyHints = disabled ? [] : findNewSynergiesForPart(build, 'weapon', p.id)
         partsList.appendChild(
           makePartButton({
             title: p.name,
@@ -518,6 +685,9 @@ export function createAssemblyUi(
             selected,
             disabled,
             locked,
+            synergyHints,
+            partId: p.id,
+            category: 'weapon',
             onPick: () => setBuild((prev) => ({ ...prev, weaponId: p.id })),
             onHover: (active) => {
               hoverCandidate = active ? { category: 'weapon', partId: p.id } : null
@@ -537,6 +707,9 @@ export function createAssemblyUi(
         selected: build.accessoryId === null,
         disabled: false,
         locked: false,
+        synergyHints: [],
+        partId: null,
+        category: 'accessory',
         onPick: () => setBuild((prev) => ({ ...prev, accessoryId: null })),
         onHover: (active) => {
           hoverCandidate = active ? { category: 'accessory', partId: null } : null
@@ -552,6 +725,7 @@ export function createAssemblyUi(
       const sub = locked
         ? `잠김 · WT:${p.weight}  효과:${p.effect.kind}`
         : `WT:${p.weight}  효과:${p.effect.kind}`
+      const synergyHints = locked ? [] : findNewSynergiesForPart(build, 'accessory', p.id)
       partsList.appendChild(
         makePartButton({
           title: p.name,
@@ -559,6 +733,9 @@ export function createAssemblyUi(
           selected,
           disabled: locked,
           locked,
+          synergyHints,
+          partId: p.id,
+          category: 'accessory',
           onPick: () => setBuild((prev) => ({ ...prev, accessoryId: p.id })),
           onHover: (active) => {
             hoverCandidate = active ? { category: 'accessory', partId: p.id } : null
@@ -705,21 +882,100 @@ export function createAssemblyUi(
   function renderSynergies(): void {
     const build = roster[activeIndex]
     const syns = findSynergies(build)
+    const activeIds = new Set(syns.map((s) => s.id))
+
+    const frag = document.createDocumentFragment()
 
     if (syns.length === 0) {
-      synBodyEl.innerHTML = `<div class="muted">시너지 없음</div>`
-      return
+      const empty = document.createElement('div')
+      empty.className = 'muted'
+      empty.textContent = '시너지 없음'
+      frag.appendChild(empty)
+    } else {
+      const wrap = document.createElement('div')
+      wrap.className = 'synergy-badges'
+      for (const s of syns) {
+        const el = document.createElement('div')
+        el.className = 'synergy'
+        el.innerHTML = `<span class="synergy-name">${s.nameKo}</span><span class="synergy-bonus">${bonusTextKo(s.bonus)}</span>`
+        wrap.appendChild(el)
+      }
+      frag.appendChild(wrap)
     }
 
-    const wrap = document.createElement('div')
-    wrap.className = 'synergy-badges'
-    for (const s of syns) {
-      const el = document.createElement('div')
-      el.className = 'synergy'
-      el.innerHTML = `<span class="synergy-name">${s.nameKo}</span><span class="synergy-bonus">${bonusTextKo(s.bonus)}</span>`
-      wrap.appendChild(el)
+    // Synergy Guide
+    const guide = document.createElement('div')
+    guide.className = 'synergy-guide'
+
+    const header = document.createElement('div')
+    header.className = 'synergy-guide-header'
+    const titleEl = document.createElement('span')
+    titleEl.className = 'synergy-guide-title'
+    titleEl.textContent = '\uC2DC\uB108\uC9C0 \uAC00\uC774\uB4DC'
+    const toggleEl = document.createElement('span')
+    toggleEl.className = 'synergy-guide-toggle' + (synergyGuideOpen ? ' open' : '')
+    toggleEl.textContent = '\u25B6'
+    header.appendChild(titleEl)
+    header.appendChild(toggleEl)
+    header.addEventListener('click', () => {
+      synergyGuideOpen = !synergyGuideOpen
+      renderSynergies()
+    })
+    guide.appendChild(header)
+
+    if (synergyGuideOpen) {
+      const list = document.createElement('div')
+      list.className = 'synergy-guide-list'
+
+      for (const syn of SYNERGIES) {
+        const isActive = activeIds.has(syn.id)
+
+        // Check if achievable: does the player own the required parts?
+        const isAchievable = checkSynergyAchievable(syn, build)
+
+        const entry = document.createElement('div')
+        entry.className = 'synergy-entry'
+        if (isActive) {
+          entry.classList.add('synergy-active')
+        } else if (isAchievable) {
+          entry.classList.add('synergy-available')
+        } else {
+          entry.classList.add('synergy-locked')
+        }
+
+        const statusMark = isActive ? ' \u2714' : ''
+
+        entry.innerHTML = `
+          <div class="synergy-entry-name">${syn.nameKo}${statusMark}</div>
+          <div class="synergy-entry-req">${conditionPartsTextKo(syn)}</div>
+          <div class="synergy-entry-bonus">${bonusTextKo(syn.bonus)}</div>
+        `
+        list.appendChild(entry)
+      }
+
+      guide.appendChild(list)
     }
-    synBodyEl.replaceChildren(wrap)
+
+    frag.appendChild(guide)
+    synBodyEl.replaceChildren(frag)
+  }
+
+  function checkSynergyAchievable(syn: SynergyDefinition, _build: Build): boolean {
+    const c = syn.condition
+    if (c.legsMove) {
+      const hasLegs = LEGS_PARTS.some((p) => p.moveType === c.legsMove && isOwned(p.id))
+      if (!hasLegs) return false
+    }
+    if (c.bodyId) {
+      if (!isOwned(c.bodyId)) return false
+    }
+    if (c.weaponId) {
+      if (!isOwned(c.weaponId)) return false
+    }
+    if (c.accessoryId) {
+      if (!isOwned(c.accessoryId)) return false
+    }
+    return true
   }
 
   function renderValidation(): { readonly allBuildsOk: boolean } {
@@ -797,7 +1053,8 @@ export function createAssemblyUi(
 
       const label = document.createElement('div')
       label.className = 'muted'
-      label.textContent = BUILD_LABELS[i]
+      const customName = buildNames[i]
+      label.textContent = customName ? `${BUILD_LABELS[i]} (${customName})` : BUILD_LABELS[i]
 
       const right = document.createElement('div')
       right.style.display = 'grid'
@@ -836,6 +1093,27 @@ export function createAssemblyUi(
     return allBuildsOk && selectedSkills.length === 3
   }
 
+  function hexToRgb(hex: string): { r: number; g: number; b: number } {
+    const n = parseInt(hex.slice(1), 16)
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+  }
+
+  function applyTeamColor(): void {
+    const { r, g, b } = hexToRgb(teamColor)
+    // Tint active tab borders
+    for (let i = 0; i < tabButtons.length; i++) {
+      const isActive = i === activeIndex
+      tabButtons[i]!.style.borderColor = isActive
+        ? `rgba(${r}, ${g}, ${b}, 0.85)`
+        : `rgba(${r}, ${g}, ${b}, 0.18)`
+      tabButtons[i]!.style.boxShadow = isActive
+        ? `0 0 0 3px rgba(${r}, ${g}, ${b}, 0.11)`
+        : 'none'
+    }
+    // Tint mech preview background radial
+    bpStageEl.style.borderColor = `rgba(${r}, ${g}, ${b}, 0.24)`
+  }
+
   function renderAll(): void {
     for (let i = 0; i < tabButtons.length; i++) {
       tabButtons[i]!.setAttribute('aria-selected', i === activeIndex ? 'true' : 'false')
@@ -848,6 +1126,7 @@ export function createAssemblyUi(
     const { allBuildsOk } = renderValidation()
     renderSkills()
     renderRatios()
+    applyTeamColor()
 
     const ok = canLaunch(allBuildsOk)
     launchBtn.disabled = !ok
@@ -880,6 +1159,7 @@ export function createAssemblyUi(
 
   return {
     destroy(): void {
+      destroyPartTooltip()
       screen.remove()
     },
   }

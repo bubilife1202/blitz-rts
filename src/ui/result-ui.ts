@@ -2,6 +2,11 @@ import type { BattleResult, BattleOutcome } from '../combat/battle'
 import type { Build, RosterIndex } from '../core/types'
 import { analyzeBattle } from '../combat/analysis'
 import { renderMechSvg } from './mech-renderer'
+import type { BattleXpResult } from '../progression/commander'
+import { calculateBattleScore } from '../progression/scoring'
+import type { ClaimedRewardResult } from '../progression/rewards'
+import { ALL_PARTS } from '../data/parts-data'
+import { getBuildNames } from './customization'
 
 export interface ResultUiCallbacks {
   onPlayAgain(): void
@@ -50,10 +55,62 @@ function mvpIndex(result: BattleResult): RosterIndex {
   return best
 }
 
+function calculateStars(result: BattleResult): number {
+  if (result.outcome !== 'player_win') return 0
+
+  const totalDeaths = result.playerBuildStats.reduce((sum, s) => sum + s.deaths, 0)
+  const totalKills = result.playerBuildStats.reduce((sum, s) => sum + s.kills, 0)
+
+  // 3 stars: Win in under 60s, or win with 0 unit deaths
+  if (result.elapsedSeconds < 60 || totalDeaths === 0) return 3
+
+  // 2 stars: Win in under 120s, or win with fewer deaths than kills
+  if (result.elapsedSeconds < 120 || totalDeaths < totalKills) return 2
+
+  // 1 star: Any other win
+  return 1
+}
+
+function getStorageKey(enemyId: string): string {
+  return `blitz-rts-stars-${enemyId}`
+}
+
+function getBestStars(enemyId: string): number {
+  try {
+    const stored = localStorage.getItem(getStorageKey(enemyId))
+    return stored ? parseInt(stored, 10) || 0 : 0
+  } catch {
+    return 0
+  }
+}
+
+function saveBestStars(enemyId: string, stars: number): boolean {
+  const prev = getBestStars(enemyId)
+  if (stars > prev) {
+    try {
+      localStorage.setItem(getStorageKey(enemyId), String(stars))
+    } catch {
+      // localStorage unavailable
+    }
+    return true
+  }
+  return false
+}
+
+function buildStarHtml(stars: number, isNewBest: boolean): string {
+  const filled = Array(stars).fill('<span class="star-filled">★</span>').join('')
+  const empty = Array(3 - stars).fill('<span class="star-empty">☆</span>').join('')
+  const newBest = isNewBest ? '<span class="star-new-best">NEW BEST</span>' : ''
+  return `<div class="star-rating">${filled}${empty}${newBest}</div>`
+}
+
 export function createResultUi(
   container: HTMLElement,
   result: BattleResult,
   callbacks: ResultUiCallbacks,
+  enemyId?: string,
+  xpResult?: BattleXpResult,
+  missionReward?: ClaimedRewardResult,
 ): { destroy(): void } {
   const screen = document.createElement('div')
   screen.className = 'screen result-layout'
@@ -91,6 +148,13 @@ export function createResultUi(
   const side = result.outcome === 'enemy_win' ? 'enemy' as const : 'player' as const
   bannerMech.innerHTML = renderMechSvg(RESULT_MECH_BUILDS[mvpIndex(result)]!, 42, side)
   banner.appendChild(bannerTitle)
+
+  const stars = calculateStars(result)
+  const isNewBest = enemyId ? saveBestStars(enemyId, stars) : false
+  const starDiv = document.createElement('div')
+  starDiv.innerHTML = buildStarHtml(stars, isNewBest)
+  banner.appendChild(starDiv.firstElementChild!)
+
   banner.appendChild(bannerMech)
   banner.appendChild(bannerSub)
 
@@ -105,10 +169,91 @@ export function createResultUi(
   const goldEl = kpis.querySelector<HTMLElement>('[data-role="gold"]')
   if (!goldEl) throw new Error('Missing gold element')
 
+  // ── XP Reward Display ──
+  if (xpResult) {
+    const xpKpi = document.createElement('div')
+    xpKpi.className = 'kpi'
+    const xpLabel = document.createElement('div')
+    xpLabel.className = 'label'
+    xpLabel.textContent = '획득 XP'
+    const xpValue = document.createElement('div')
+    xpValue.className = 'value xp-reward'
+    xpValue.textContent = `+${xpResult.xpGained} XP`
+    xpKpi.appendChild(xpLabel)
+    xpKpi.appendChild(xpValue)
+
+    if (xpResult.leveledUp) {
+      const lvlUp = document.createElement('div')
+      lvlUp.className = 'level-up-text'
+      lvlUp.style.marginTop = '6px'
+      lvlUp.textContent = `LEVEL UP! LV.${xpResult.newLevel}`
+      xpKpi.appendChild(lvlUp)
+    }
+
+    kpis.appendChild(xpKpi)
+  }
+
+  // ── Battle Score Display ──
+  const totalKills = result.playerBuildStats.reduce((sum, s) => sum + s.kills, 0)
+  const totalDeaths = result.playerBuildStats.reduce((sum, s) => sum + s.deaths, 0)
+  const totalDmg = result.playerBuildStats.reduce((sum, s) => sum + s.damageDealt, 0)
+  const score = calculateBattleScore({
+    outcome: result.outcome,
+    elapsedSeconds: result.elapsedSeconds,
+    kills: totalKills,
+    deaths: totalDeaths,
+    totalDamage: totalDmg,
+    playerBaseHpPct: result.playerBaseHpPct,
+  })
+
+  const scoreSection = document.createElement('div')
+  scoreSection.className = 'score-section'
+  scoreSection.style.marginTop = '14px'
+
+  const SCORE_BAR_MAX: Record<string, number> = {
+    Kill: 500,
+    Speed: 500,
+    Ratio: 500,
+    Dmg: 500,
+    Base: 300,
+  }
+
+  scoreSection.innerHTML = `
+    <div class="score-rank rank-${score.rank}">${score.rank}</div>
+    <div class="score-details">
+      <div class="score-total">${score.total.toLocaleString()} pts</div>
+      ${(
+        [
+          ['Kill', score.breakdown.killScore],
+          ['Speed', score.breakdown.speedScore],
+          ['Ratio', score.breakdown.efficiencyScore],
+          ['Dmg', score.breakdown.damageScore],
+          ['Base', score.breakdown.baseDefenseScore],
+        ] as const
+      )
+        .map(
+          ([label, value]) => `
+        <div class="score-bar-row">
+          <div class="score-bar-label">${label}</div>
+          <div class="score-bar">
+            <div class="score-bar-fill" style="width: 0%" data-target="${Math.min(100, (value / (SCORE_BAR_MAX[label] ?? 500)) * 100)}"></div>
+          </div>
+          <div class="score-bar-value">${value}</div>
+        </div>`,
+        )
+        .join('')}
+    </div>
+  `
+
   const tableWrap = document.createElement('div')
   tableWrap.style.marginTop = '14px'
 
-  const buildLabels = ['빌드 A', '빌드 B', '빌드 C'] as const
+  const savedNames = getBuildNames()
+  const buildLabels = [
+    savedNames[0] || '빌드 A',
+    savedNames[1] || '빌드 B',
+    savedNames[2] || '빌드 C',
+  ] as const
   const totalDamage = result.playerBuildStats.reduce((sum, s) => sum + s.damageDealt, 0)
 
   const table = document.createElement('table')
@@ -217,9 +362,62 @@ export function createResultUi(
   actions.appendChild(againBtn)
   actions.appendChild(lobbyBtn)
 
+  // ── Mission Reward Display ──
+  let rewardPanel: HTMLDivElement | null = null
+  if (missionReward) {
+    rewardPanel = document.createElement('div')
+    rewardPanel.className = 'panel mission-reward-panel'
+    rewardPanel.style.marginTop = '14px'
+
+    const rewardHeader = document.createElement('div')
+    rewardHeader.className = 'panel-header'
+    rewardHeader.innerHTML = `<h3 class="panel-title">\uBBF8\uC158 \uBCF4\uC0C1</h3><div class="muted">${missionReward.reward.labelKo}</div>`
+
+    const rewardBody = document.createElement('div')
+    rewardBody.className = 'panel-body mission-reward-body'
+
+    // Gold reward
+    const goldRow = document.createElement('div')
+    goldRow.className = 'mission-reward-gold'
+    goldRow.innerHTML = `<span class="mission-reward-gold-icon">G</span><span class="mission-reward-gold-amount">+${missionReward.reward.gold} \uACE8\uB4DC</span>`
+    rewardBody.appendChild(goldRow)
+
+    // Part unlock cards
+    if (missionReward.reward.parts.length > 0) {
+      const partsGrid = document.createElement('div')
+      partsGrid.className = 'mission-reward-parts'
+
+      for (const partId of missionReward.reward.parts) {
+        const partDef = ALL_PARTS.find(p => p.id === partId)
+        const partName = partDef ? partDef.name : partId
+        const slotLabel = partDef ? partDef.slot : ''
+        const isNew = missionReward.newParts.includes(partId)
+
+        const card = document.createElement('div')
+        card.className = 'mission-reward-part-card'
+
+        card.innerHTML = `
+          <div class="mission-reward-part-slot">${slotLabel}</div>
+          <div class="mission-reward-part-name">${partName}</div>
+          <div class="mission-reward-part-id mono">${partId}</div>
+          ${isNew ? '<div class="mission-reward-new-badge">NEW</div>' : ''}
+        `
+
+        partsGrid.appendChild(card)
+      }
+
+      rewardBody.appendChild(partsGrid)
+    }
+
+    rewardPanel.appendChild(rewardHeader)
+    rewardPanel.appendChild(rewardBody)
+  }
+
   body.appendChild(banner)
   body.appendChild(kpis)
+  body.appendChild(scoreSection)
   body.appendChild(tableWrap)
+  if (rewardPanel) body.appendChild(rewardPanel)
   body.appendChild(analysisPanel)
   body.appendChild(actions)
 
@@ -229,6 +427,15 @@ export function createResultUi(
   screen.appendChild(title)
   screen.appendChild(panel)
   container.replaceChildren(screen)
+
+  // Animate score bar fills after a short delay
+  requestAnimationFrame(() => {
+    const fills = scoreSection.querySelectorAll<HTMLElement>('.score-bar-fill')
+    for (const fill of fills) {
+      const target = fill.dataset.target ?? '0'
+      fill.style.width = `${target}%`
+    }
+  })
 
   let rafId: number | null = null
   const start = performance.now()

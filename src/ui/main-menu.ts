@@ -1,14 +1,18 @@
 import { ENEMY_PRESETS } from '../data/enemies-data'
 import { isMuted, playSfx, setMuted } from './audio'
 import { renderMechSvg } from './mech-renderer'
+import { getCommanderProfile, getXpProgress } from '../progression/commander'
+import { getDailyChallenge, isDailyChallengeCompleted } from '../progression/daily-challenge'
 
 export interface MainMenuCallbacks {
   onSelectEnemy(presetIndex: number): void
   onGoShop(): void
   onShowGuide(): void
   onReplayTutorial(): void
+  onSettings(): void
   onCampaign?(): void
   onCoopBattle?(): void
+  onDailyChallenge?(): void
 }
 
 const STAR_MAP: Record<string, string> = {
@@ -57,6 +61,37 @@ export function createMainMenu(
   goldPill.appendChild(goldValue)
   meta.appendChild(goldPill)
 
+  // ── Commander Profile Display ──
+  const commander = getCommanderProfile()
+  const xpProgress = getXpProgress()
+
+  const cmdBadge = document.createElement('span')
+  cmdBadge.className = 'commander-badge'
+  const cmdLevelText = document.createTextNode(`LV.${commander.level}`)
+  cmdBadge.appendChild(cmdLevelText)
+
+  const cmdXpBar = document.createElement('div')
+  cmdXpBar.className = 'commander-xp-bar'
+  const cmdXpFill = document.createElement('div')
+  cmdXpFill.className = 'commander-xp-fill'
+  cmdXpFill.style.width = `${xpProgress.pct}%`
+  cmdXpBar.appendChild(cmdXpFill)
+
+  cmdBadge.appendChild(cmdXpBar)
+  meta.appendChild(cmdBadge)
+
+  if (commander.winStreak >= 2) {
+    const streakEl = document.createElement('span')
+    streakEl.className = 'win-streak'
+    streakEl.textContent = `\u{1F525} ${commander.winStreak}\uC5F0\uC2B9`
+    meta.appendChild(streakEl)
+  }
+
+  const recordEl = document.createElement('span')
+  recordEl.className = 'battle-record'
+  recordEl.textContent = `${commander.totalWins}W ${commander.totalLosses}L`
+  meta.appendChild(recordEl)
+
   const shopBtn = document.createElement('button')
   shopBtn.type = 'button'
   shopBtn.className = 'btn btn-ghost'
@@ -91,7 +126,16 @@ export function createMainMenu(
   replayTutorialBtn.textContent = '다시 보기'
   replayTutorialBtn.addEventListener('click', () => callbacks.onReplayTutorial())
 
-  actionMeta.append(muteBtn, guideBtn, replayTutorialBtn, shopBtn)
+  const settingsBtn = document.createElement('button')
+  settingsBtn.type = 'button'
+  settingsBtn.className = 'btn btn-ghost'
+  settingsBtn.textContent = '\u2699 \uC124\uC815'
+  settingsBtn.addEventListener('click', () => {
+    playSfx('click')
+    callbacks.onSettings()
+  })
+
+  actionMeta.append(settingsBtn, muteBtn, guideBtn, replayTutorialBtn, shopBtn)
 
   topbar.appendChild(meta)
   topbar.appendChild(actionMeta)
@@ -238,9 +282,83 @@ export function createMainMenu(
   }
   syncEnemyGrid()
 
+  // ── Daily Challenge Card ──
+  const dailyChallenge = getDailyChallenge()
+  const dailyCompleted = isDailyChallengeCompleted()
+  const dailyEnemy = ENEMY_PRESETS[dailyChallenge.enemyIndex]
+
+  const dailyCard = document.createElement('div')
+  dailyCard.className = `daily-challenge-card${dailyCompleted ? ' daily-completed' : ''}`
+
+  const dailyHeader = document.createElement('div')
+  dailyHeader.className = 'daily-challenge-header'
+
+  const dailyTitle = document.createElement('div')
+  dailyTitle.className = 'daily-challenge-title'
+  dailyTitle.textContent = '\uC624\uB298\uC758 \uB3C4\uC804'
+
+  dailyHeader.appendChild(dailyTitle)
+
+  if (dailyCompleted) {
+    const dailyCheck = document.createElement('div')
+    dailyCheck.className = 'daily-challenge-check'
+    dailyCheck.textContent = '\u2713'
+    dailyHeader.appendChild(dailyCheck)
+  }
+
+  const dailyInfo = document.createElement('div')
+  dailyInfo.className = 'daily-challenge-info'
+
+  const modifierBadge = document.createElement('span')
+  modifierBadge.className = 'daily-modifier-badge'
+  modifierBadge.textContent = dailyChallenge.modifierKo
+
+  const enemyNameEl = document.createElement('span')
+  enemyNameEl.className = 'daily-enemy-name'
+  enemyNameEl.textContent = `vs ${dailyEnemy?.nameKo ?? '\uC54C \uC218 \uC5C6\uB294 \uC801'}`
+
+  const bonusGoldEl = document.createElement('span')
+  bonusGoldEl.className = 'daily-bonus-gold'
+  bonusGoldEl.textContent = `+${dailyChallenge.bonusGold} G \uBCF4\uB108\uC2A4`
+
+  dailyInfo.append(modifierBadge, enemyNameEl, bonusGoldEl)
+
+  const dailyActions = document.createElement('div')
+  dailyActions.className = 'daily-challenge-actions'
+
+  if (dailyCompleted) {
+    const completedLabel = document.createElement('span')
+    completedLabel.className = 'daily-completed-label'
+    completedLabel.textContent = '\u2713 \uC644\uB8CC'
+    dailyActions.appendChild(completedLabel)
+  } else {
+    const challengeBtn = document.createElement('button')
+    challengeBtn.type = 'button'
+    challengeBtn.className = 'daily-challenge-btn'
+    challengeBtn.textContent = '\uB3C4\uC804\uD558\uAE30'
+    challengeBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      playSfx('click')
+      callbacks.onDailyChallenge?.()
+    })
+    dailyActions.appendChild(challengeBtn)
+  }
+
+  dailyCard.appendChild(dailyHeader)
+  dailyCard.appendChild(dailyInfo)
+  dailyCard.appendChild(dailyActions)
+
+  if (!dailyCompleted) {
+    dailyCard.addEventListener('click', () => {
+      playSfx('click')
+      callbacks.onDailyChallenge?.()
+    })
+  }
+
   screen.appendChild(title)
   screen.appendChild(topbar)
   screen.appendChild(modeCards)
+  screen.appendChild(dailyCard)
   screen.appendChild(enemyPanel)
 
   container.replaceChildren(screen)

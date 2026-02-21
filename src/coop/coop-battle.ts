@@ -436,9 +436,11 @@ function checkWinCondition(state: InternalCoopState): void {
   }
 
   if (outcome) {
+    const baseHpPct = playerDestroyed ? 0 : Math.max(0, playerBase.hp / playerBase.maxHp)
     state.result = {
       outcome,
       elapsedSeconds: state.elapsed,
+      playerBaseHpPct: baseHpPct,
       playerBuildStats: state.playerBuildStats,
       enemyBuildStats: state.enemyBuildStats,
     }
